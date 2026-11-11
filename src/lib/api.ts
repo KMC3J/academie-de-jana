@@ -6,7 +6,8 @@
 //  · profils, avatars, badges, XP/étoiles/cristaux, progression par matière
 //  · matières & chapitres, quêtes, fiches, emploi du temps (éditables côté parent)
 //  · quiz : questions tirées d'une banque locale (data/seed.ts)
-//  · professeur magique : réponses construites à partir des fiches et chapitres
+//  · professeur magique socratique : questionne d'abord, donne un indice, puis
+//    explique (vraie IA si une clé API est configurée, sinon fiches locales)
 //  · temps d'écran (battement de cœur toutes les 30 s), créations de l'atelier
 //  · espace parent protégé par un code (par défaut 1234)
 
@@ -20,6 +21,8 @@ import {
   TIMETABLE,
   defaultProfiles,
 } from "@/data/seed";
+import { fullExplanation, giveHint, probeQuestion, SOCRATIC_SYSTEM, stepOf } from "@/lib/socratic";
+import { LIBRARY_BOOKS } from "@/data/library";
 import type {
   Avatar,
   BadgeDef,
@@ -96,10 +99,31 @@ function seed(): DB {
   };
 }
 
+// Ajoute au magasin local les matières (et leurs chapitres) présentes dans le
+// programme mais absentes de la sauvegarde : sans cela, un profil créé avant
+// une mise à jour ne verrait jamais les nouvelles matières.
+function withNewSubjects(saved: DB): DB {
+  const subjects = saved.subjects ?? [];
+  const known = new Set(subjects.map((s) => s.id));
+  const added = SUBJECTS.filter((s) => !known.has(s.id)).map((s) => structuredClone(s));
+
+  // Chapitres ajoutés à une matière existante
+  const merged = subjects.map((s) => {
+    const fresh = SUBJECTS.find((x) => x.id === s.id);
+    if (!fresh) return s;
+    const have = new Set((s.chapters ?? []).map((c) => c.id));
+    const extra = (fresh.chapters ?? []).filter((c) => !have.has(c.id)).map((c) => ({ ...c }));
+    const renamed = s.name !== fresh.name ? { name: fresh.name } : {};
+    return extra.length ? { ...s, ...renamed, chapters: [...(s.chapters ?? []), ...extra] } : { ...s, ...renamed };
+  });
+
+  return { ...saved, subjects: [...merged, ...added] };
+}
+
 function load(): DB {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...seed(), ...(JSON.parse(raw) as DB) };
+    if (raw) return withNewSubjects({ ...seed(), ...(JSON.parse(raw) as DB) });
   } catch {
     /* stockage indisponible ou corrompu : on repart du jeu de départ */
   }
@@ -333,54 +357,75 @@ function submitQuiz(quizId: string, answers: string[]): QuizResult {
 }
 
 // ---------------------------------------------------------------------------
-// Professeur magique (local)
+// Professeur magique
+//   · si une clé API est configurée dans l'app (Paramètres → clé fournisseur),
+//     la question est envoyée au vrai modèle de langage ;
+//   · sinon, réponse locale construite à partir des fiches et des chapitres.
 // ---------------------------------------------------------------------------
-function teacherReply(message: string, subjectId: string | null, profile: Profile): string {
-  const m = message
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-  const scope = subjectId ? subjects().filter((s) => s.id === subjectId) : subjects();
-  const allSheets = db.sheets;
+const TEACHER_SYSTEM = SOCRATIC_SYSTEM;
 
-  // 1. Une fiche correspondante ?
-  const sheet = allSheets.find((s) => {
-    const words = (s.title + " " + s.content).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    return m.split(/\W+/).filter((w) => w.length > 4).some((w) => words.includes(w));
-  });
-  if (sheet) {
-    const subj = subjects().find((s) => s.id === sheet.subject_id);
-    const body =
-      sheet.kind === "carte"
-        ? sheet.branches.map((b) => `• ${b.label} : ${b.items.join(", ")}`).join("\n")
-        : sheet.content;
-    return `Bien sûr, ${profile.name} ! Voici ce que dit la Bibliothèque sur **${sheet.title}** (${subj?.magic_name ?? "Académie"}) :\n\n${body}\n\nEssaie ensuite de le refaire sans regarder : c'est comme ça que la magie reste !`;
-  }
+type ProviderConfig = { provider: string; model: string; apiKey: string };
 
-  // 2. Un chapitre de la bonne matière ?
-  for (const s of scope) {
-    for (const c of s.chapters) {
-      const title = c.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      if (m.split(/\W+/).filter((w) => w.length > 4).some((w) => title.includes(w))) {
-        return `**${c.title}** (${s.name}) : ${c.description}.\n\nMon conseil de professeure :\n1. Relis la fiche méthode de la Bibliothèque.\n2. Fais un quiz de 3 questions sur ce chapitre.\n3. Note ce qui te résiste encore et pose-moi la question.\n\nJe ne donne pas la réponse toute faite — mais si tu me dis où tu bloques, je t'indique la piste.`;
-      }
+const PROVIDER_KEY = "academie.ai.v1";
+
+export function getAiConfig(): ProviderConfig {
+  try {
+    const raw = localStorage.getItem(PROVIDER_KEY);
+    if (raw) return { provider: "openai", model: "gpt-4o-mini", apiKey: "", ...(JSON.parse(raw) as Partial<ProviderConfig>) };
+  } catch { /* ignore */ }
+  return { provider: "openai", model: "gpt-4o-mini", apiKey: "" };
+}
+
+export function setAiConfig(cfg: Partial<ProviderConfig>) {
+  localStorage.setItem(PROVIDER_KEY, JSON.stringify({ ...getAiConfig(), ...cfg }));
+}
+
+/** Appelle réellement le modèle. Renvoie null si aucune clé n'est configurée. */
+async function askModel(step: "probe" | "hint" | "explain", message: string, subjectName: string | null, profile: Profile, history: ChatMessage[]): Promise<string | null> {
+  const { provider, model, apiKey } = getAiConfig();
+  if (!apiKey) return null;
+
+  const endpoints: Record<string, { url: string; headers: Record<string, string> }> = {
+    openai: { url: "https://api.openai.com/v1/chat/completions", headers: { Authorization: `Bearer ${apiKey}` } },
+    mistral: { url: "https://api.mistral.ai/v1/chat/completions", headers: { Authorization: `Bearer ${apiKey}` } },
+    groq: { url: "https://api.groq.com/openai/v1/chat/completions", headers: { Authorization: `Bearer ${apiKey}` } },
+  };
+  const ep = endpoints[provider] ?? endpoints.openai;
+
+  const context = (subjectName ? `\nMatière en cours : ${subjectName}.` : "") +
+    `\nÉtape imposée pour ce message : ${
+      step === "probe" ? "PREMIER contact — pose une question, ne donne AUCUNE réponse ni indice." :
+      step === "hint" ? "l'élève demande de l'aide — donne UN seul indice, sans la réponse." :
+      "l'élève a cherché — donne maintenant l'explication complète, pas à pas."
+    }`;
+  const body = {
+    model,
+    temperature: 0.6,
+    max_tokens: 600,
+    messages: [
+      { role: "system", content: TEACHER_SYSTEM + context + `\nL'élève s'appelle ${profile.name}.` },
+      ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content: message },
+    ],
+  };
+
+  try {
+    const res = await fetch(ep.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...ep.headers },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.warn("[Dame Morgane] appel IA refusé :", res.status, detail.slice(0, 200));
+      return null;
     }
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const text = data.choices?.[0]?.message?.content?.trim();
+    return text && text.length > 0 ? text : null;
+  } catch {
+    return null;
   }
-
-  // 3. Question de calcul simple ?
-  const calc = m.match(/(-?\d+[.,]?\d*)\s*([+\-*/x])\s*(-?\d+[.,]?\d*)/);
-  if (calc) {
-    const a = Number(calc[1].replace(",", "."));
-    const b = Number(calc[3].replace(",", "."));
-    const op = calc[2];
-    const r = op === "+" ? a + b : op === "-" ? a - b : op === "*" || op === "x" ? a * b : b === 0 ? NaN : a / b;
-    if (!Number.isNaN(r)) {
-      return `Tu peux le vérifier à la Calculatrice du Lac des nombres : **${a} ${op} ${b} = ${r}**.\n\nMéthode : repère d'abord les priorités (parenthèses, puis × et ÷, enfin + et −).`;
-    }
-  }
-
-  // 4. Réponse générique guidée
-  return `Excellente question, ${profile.name} ! Je ne te donne pas la réponse directement — c'est en cherchant qu'on devient sorcière.\n\nTrois pistes :\n1. Ouvre la **Bibliothèque** et cherche une fiche sur ce sujet.\n2. Dans **Matières**, choisis le chapitre le plus proche et lance un quiz de 3 questions.\n3. Dis-moi précisément ce qui te bloque (une définition ? un exemple ?) et je t'explique pas à pas.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +442,16 @@ function routeGet(path: string, query: URLSearchParams): unknown {
     return s;
   }
   if (path === "/badges") return BADGES as BadgeDef[];
+  // ---- Bibliothèque (livres)
+  if (path === "/books") {
+    const sid = query.get("subject_id");
+    return sid ? LIBRARY_BOOKS.filter((x) => x.subject_id === sid) : LIBRARY_BOOKS;
+  }
+  if ((m = path.match(/^\/books\/([^/]+)$/))) {
+    const book = LIBRARY_BOOKS.find((x) => x.id === m![1]);
+    if (!book) throw new ApiError(404, { detail: "Livre introuvable" });
+    return book;
+  }
   if (path === "/sheets") {
     const sid = query.get("subject_id");
     return sid ? db.sheets.filter((s) => s.subject_id === sid) : db.sheets;
@@ -418,7 +473,7 @@ function routeGet(path: string, query: URLSearchParams): unknown {
   throw new ApiError(404, { detail: `Route inconnue : GET ${path}` });
 }
 
-function routeWrite(method: string, path: string, body: unknown): unknown {
+async function routeWrite(method: string, path: string, body: unknown): Promise<unknown> {
   let m: RegExpMatchArray | null;
   const b = (body ?? {}) as Record<string, unknown>;
 
@@ -428,6 +483,23 @@ function routeWrite(method: string, path: string, body: unknown): unknown {
   }
   if ((m = path.match(/^\/quiz\/([^/]+)\/submit$/)) && method === "POST") {
     return submitQuiz(m[1], (b.answers as string[]) ?? []);
+  }
+  // Fin d'un quiz de lecture : mêmes récompenses que le quiz classique
+  if (path === "/reading/submit" && method === "POST") {
+    const p = findProfile(String(b.profile_id));
+    const score = Number(b.score ?? 0);
+    const total = Number(b.total ?? 1);
+    const subjectId = String(b.subject_id);
+    const gained = Math.round((score / Math.max(total, 1)) * 10) + 3;
+    p.xp += gained;
+    p.stars += score;
+    p.subject_xp[subjectId] = (p.subject_xp[subjectId] ?? 0) + gained;
+    const log = db.quizLog[p.id] ?? [];
+    log.push({ score, total });
+    db.quizLog[p.id] = log;
+    Object.assign(p, normalize(p));
+    save();
+    return { score, total, xp_gained: gained };
   }
 
   // ---- Profils
@@ -654,7 +726,20 @@ function routeWrite(method: string, path: string, body: unknown): unknown {
     const pid = String(b.profile_id);
     const p = findProfile(pid);
     const message = String(b.message ?? "");
-    const reply = teacherReply(message, (b.subject_id as string | null) ?? null, p);
+    const subjectId = (b.subject_id as string | null) ?? null;
+    const previous = db.chat[pid] ?? [];
+    const subjectName = subjectId ? subjects().find((s) => s.id === subjectId)?.name ?? null : null;
+    const said = previous.filter((m) => m.role === "user").map((m) => m.content);
+    const lastReply = [...previous].reverse().find((m) => m.role === "assistant")?.content ?? "";
+    const memory = { tried: said.length > 0, hinted: /indice/i.test(lastReply) };
+    const step = stepOf(previous, message, memory);
+    const local =
+      step === "explain"
+        ? fullExplanation(message, subjectId, subjects(), db.sheets, p, QUESTION_BANK)
+        : step === "hint"
+          ? `${giveHint(message, subjectId, subjects(), db.sheets, QUESTION_BANK)}`
+          : probeQuestion(message, p);
+    const reply = (await askModel(step, message, subjectName, p, previous)) ?? local;
     const list = db.chat[pid] ?? [];
     list.push({ id: uid(), role: "user", content: message, created_at: new Date().toISOString() });
     list.push({ id: uid(), role: "assistant", content: reply, created_at: new Date().toISOString() });
@@ -704,7 +789,7 @@ async function call<T>(method: string, fullPath: string, body?: unknown): Promis
   const [path, qs] = fullPath.split("?");
   const query = new URLSearchParams(qs ?? "");
   await delay();
-  const out = method === "GET" ? routeGet(path, query) : routeWrite(method, path, body);
+  const out = method === "GET" ? routeGet(path, query) : await routeWrite(method, path, body);
   // Clonage : les pages ne doivent jamais muter l'état du magasin directement.
   return JSON.parse(JSON.stringify(out ?? null)) as T;
 }

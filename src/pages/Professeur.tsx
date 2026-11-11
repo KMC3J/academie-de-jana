@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Eraser, Loader2, Send, Sparkles } from "lucide-react";
+import { BrainCircuit, Eraser, KeyRound, Loader2, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { apiDelete, apiGet, apiStream } from "@/lib/api";
+import { apiDelete, apiGet, apiStream, getAiConfig, setAiConfig } from "@/lib/api";
 import { IMAGES, useProfile, useProfileId, useSubjects } from "@/lib/academy";
 import { setActivity } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,10 @@ export default function Professeur() {
   const [subjectId, setSubjectId] = useState(params.get("matiere") ?? "all");
   const [text, setText] = useState("");
   const [pending, setPending] = useState<{ user: string; reply: string } | null>(null);
+  const [ai, setAi] = useState(getAiConfig);
+  const [showKey, setShowKey] = useState(false);
+  const [keyDraft, setKeyDraft] = useState("");
+  const aiReady = ai.apiKey.trim().length > 0;
   const bottom = useRef<HTMLDivElement>(null);
 
   const { data: history } = useQuery({
@@ -101,6 +105,79 @@ export default function Professeur() {
           <Button variant="ghost" size="sm" className="mt-3 text-[#A7A1C8]" onClick={() => clear.mutate()} data-testid="teacher-clear-button">
             <Eraser /> Effacer la conversation
           </Button>
+        </div>
+
+        <div className="rounded-3xl border border-white/5 bg-[#18142A] p-4" data-testid="teacher-ai-panel">
+          <p className="flex items-center gap-2 text-xs text-[#C4B5FD]">
+            <BrainCircuit className="size-4" /> Cerveau de Dame Morgane
+          </p>
+          <p className="mt-2 text-xs leading-relaxed" data-testid="teacher-ai-status">
+            {aiReady ? (
+              <span className="text-[#6EE7B7]">IA connectée ({ai.provider} · {ai.model}).</span>
+            ) : (
+              <span className="text-[#FCA5A5]">
+                Mode local : réponses préparées à partir des fiches. Ajoute une clé API pour une vraie IA.
+              </span>
+            )}
+          </p>
+
+          {showKey ? (
+            <div className="mt-3 space-y-2">
+              <select
+                className="w-full rounded-lg border border-white/10 bg-[#0D0B18] px-2 py-1.5 text-xs text-white"
+                value={ai.provider}
+                onChange={(e) => {
+                  const provider = e.target.value;
+                  const model = provider === "mistral" ? "mistral-small-latest" : provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
+                  const next = { ...ai, provider, model };
+                  setAi(next);
+                  setAiConfig(next);
+                }}
+                data-testid="teacher-ai-provider"
+              >
+                <option value="openai">OpenAI</option>
+                <option value="mistral">Mistral</option>
+                <option value="groq">Groq</option>
+              </select>
+              <input
+                type="password"
+                className="w-full rounded-lg border border-white/10 bg-[#0D0B18] px-2 py-1.5 text-xs text-white"
+                placeholder="Clé API (sk-…)"
+                value={keyDraft}
+                onChange={(e) => setKeyDraft(e.target.value)}
+                data-testid="teacher-ai-key"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  data-testid="teacher-ai-save"
+                  onClick={() => {
+                    const next = { ...ai, apiKey: keyDraft.trim() };
+                    setAi(next);
+                    setAiConfig(next);
+                    setShowKey(false);
+                    toast.success(next.apiKey ? "IA connectée !" : "Clé retirée : mode local.");
+                  }}
+                >
+                  Enregistrer
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowKey(false)}>Annuler</Button>
+              </div>
+              <p className="text-[11px] leading-snug text-[#7C77A0]">
+                La clé reste dans ce navigateur et n'est envoyée qu'au fournisseur choisi.
+              </p>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-2 text-[#C4B5FD]"
+              onClick={() => { setKeyDraft(ai.apiKey); setShowKey(true); }}
+              data-testid="teacher-ai-configure"
+            >
+              <KeyRound /> {aiReady ? "Changer de clé" : "Connecter une IA"}
+            </Button>
+          )}
         </div>
       </aside>
 

@@ -63,3 +63,54 @@ Bouton **« Réinitialiser l'Académie »** en bas du menu latéral : remet tout
 
 React 18 · TypeScript · Vite · Tailwind CSS · react-router · TanStack Query ·
 framer-motion · recharts · lucide-react · sonner
+
+## Classes de 5e
+
+### Matières (12)
+Mathématiques · Français · Histoire-Géo · Anglais · **SVT** · Arts plastiques ·
+**Espagnol** · **Physique-Chimie** · **Technologie** · **Éducation musicale** · **Arabe**
+(les matières en gras ont été ajoutées à la version d'origine : 5 chapitres,
+quiz et fiche méthode pour chacune).
+
+Les matières et chapitres nouveaux sont fusionnés automatiquement dans le
+`localStorage` existant au démarrage (`withNewSubjects` dans `src/lib/api.ts`) :
+aucun profil ne perd ses progrès et personne n'a besoin de vider le cache.
+
+### Carte & quiz du monde
+`/globe` — carte SVG classique (177 pays, `src/data/world-shapes.json`), fiche
+pays (capitale, monnaie, langue, superficie, population, histoire) et quiz de
+8 questions par série (capitale, monnaie, « clique sur le pays »).
+
+### Dictée
+Onglet « Dictée » de l'atelier : 5 dictées de 5e, correction mot à mot
+(Levenshtein) avec score et diff coloré.
+
+### La Bibliothèque
+`/bibliotheque` — 7 livres courts (roman, mythe, documentaire, poèmes, théâtre)
+avec 2 questions de compréhension par livre, et récompense XP/étoiles.
+
+### Dame Morgane, professeure socratique
+`/professeur` — elle ne donne **jamais** la réponse au premier message :
+
+1. **relance** : elle te demande ce que tu sais déjà ;
+2. **indice** : tape `indice` (ou « aide », « je ne sais pas ») → un seul indice,
+   tiré de la fiche ou du chapitre le plus proche ;
+3. **explication** : après ton essai (ou si tu redemandes la réponse) → la leçon
+   complète, pas à pas.
+
+Le moteur est dans `src/lib/socratic.ts`. Si une clé API est enregistrée
+(bouton « Connecter une IA » : OpenAI, Mistral ou Groq), la question part
+réellement vers le modèle avec un prompt qui impose les trois étapes ; sinon
+elle répond en local à partir des fiches et des chapitres. La clé reste dans le
+navigateur (`localStorage`) et n'est envoyée qu'au fournisseur choisi.
+
+### Espace parent
+Code par défaut : **1234**.
+
+## Scripts de données
+
+- `node scripts/serve-dist.mjs 59559` — serveur statique avec repli SPA (nécessaire
+  pour ouvrir `/globe` ou `/atelier` en direct).
+- `node scripts/build-shapes.mjs` — reconstruit `src/data/world-shapes.json`
+  à partir de Natural Earth (cache dans `.cache/`).
+- `node scripts/build-countries.mjs` — reconstruit `src/data/countries.json`.

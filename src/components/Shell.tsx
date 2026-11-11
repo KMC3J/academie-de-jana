@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  CalendarDays, Calculator, Castle, Clock, GraduationCap, LogOut, Map, Menu, NotebookPen, Palette, ScrollText,
-  Sparkles, Star, Gem, UserRound, BookOpen, RotateCcw,
+  CalendarDays, Calculator, Castle, Clock, Globe2, GraduationCap, LogOut, Map, Menu, NotebookPen, Palette, ScrollText,
+  Sparkles, Star, Gem, UserRound, BookOpen, RotateCcw, Library,
 } from "lucide-react";
 import { apiPost, resetAcademy } from "@/lib/api";
 import { setCurrentProfile, useProfile, useProfileId } from "@/lib/academy";
@@ -21,8 +21,10 @@ export function setActivity(subjectId: string | null) {
 const NAV = [
   { to: "/accueil", label: "Accueil", icon: Castle, id: "home" },
   { to: "/matieres", label: "Matières", icon: BookOpen, id: "subjects" },
+  { to: "/globe", label: "Carte & quiz du monde", icon: Globe2, id: "globe" },
   { to: "/quetes", label: "Quêtes", icon: Map, id: "quests" },
   { to: "/professeur", label: "Professeur magique", icon: GraduationCap, id: "teacher" },
+  { to: "/bibliotheque", label: "Bibliothèque", icon: Library, id: "library" },
   { to: "/fiches", label: "Fiches & cartes", icon: ScrollText, id: "sheets" },
   { to: "/atelier", label: "Atelier création", icon: Palette, id: "workshop" },
   { to: "/calculatrice", label: "Calculatrice", icon: Calculator, id: "calculator" },

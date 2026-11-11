@@ -1,4 +1,5 @@
 import type { BadgeDef, Chapter, MindBranch, Profile, Quest, Sheet, Slot, Subject } from "@/lib/types";
+import { EXTRA_QUESTIONS, EXTRA_SHEETS, EXTRA_SUBJECTS } from "@/data/extra-subjects";
 
 export const PROFILE_IDS = { jana: "p-jana", leo: "p-leo" } as const;
 
@@ -25,6 +26,8 @@ export const SUBJECTS: Subject[] = [
       { id: "maths-fractions", title: "Fractions", description: "Additionner, simplifier, comparer les fractions" },
       { id: "maths-relatifs", title: "Nombres relatifs", description: "Addition et soustraction de nombres négatifs" },
       { id: "maths-proportion", title: "Proportionnalité", description: "Pourcentages, échelles et tableaux" },
+      { id: "maths-triangles", title: "Triangles et symétrie", description: "Construction, propriétés et axe de symétrie" },
+      { id: "maths-aires", title: "Périmètres et aires", description: "Calculer le tour et la surface des figures" },
     ],
   },
   {
@@ -38,6 +41,8 @@ export const SUBJECTS: Subject[] = [
       { id: "francais-passe-simple", title: "Le passé simple", description: "Conjuguer et reconnaître le passé simple" },
       { id: "francais-figures", title: "Figures de style", description: "Comparaison, métaphore, personnification" },
       { id: "francais-recits", title: "Récits d'aventure", description: "Analyser un récit d'aventure" },
+      { id: "francais-conjugaison", title: "Imparfait et passé composé", description: "Choisir le bon temps du récit" },
+      { id: "francais-grammaire", title: "Classes grammaticales", description: "Nom, verbe, adjectif, adverbe…" },
     ],
   },
   {
@@ -51,6 +56,8 @@ export const SUBJECTS: Subject[] = [
       { id: "histoire-féodalité", title: "Féodalité et seigneurs", description: "Vassaux, suzerains et châteaux forts" },
       { id: "histoire-islam", title: "Naissance de l'islam", description: "Mahomet et l'empire musulman" },
       { id: "histoire-climat", title: "Changements climatiques", description: "Répartition de la population et climat" },
+      { id: "histoire-villes", title: "Villes et commerce", description: "Bourgs, foires et réseaux marchands" },
+      { id: "histoire-revolutions", title: "Révolutions et empires", description: "Révolutions modernes et empires coloniaux" },
     ],
   },
   {
@@ -64,18 +71,23 @@ export const SUBJECTS: Subject[] = [
       { id: "anglais-present", title: "Présent simple", description: "Le présent simple et les adverbes de fréquence" },
       { id: "anglais-questions", title: "Poser des questions", description: "Question words et auxiliaires" },
       { id: "anglais-irregular", title: "Verbes irréguliers", description: "Les 20 verbes irréguliers les plus utiles" },
+      { id: "anglais-prétérit", title: "Le prétérit", description: "Raconter au passé en anglais" },
+      { id: "anglais-vie", title: "Ma vie quotidienne", description: "School, hobbies et daily routine" },
     ],
   },
   {
     id: "svt",
-    name: "Sciences",
+    name: "SVT",
     magic_name: "Potions et plantes",
     icon: "flask",
     color: "#10B981",
     order: 5,
     chapters: [
       { id: "svt-cellule", title: "La cellule", description: "Cellule végétale et cellule animale" },
-      { id: "svt-alimentation", title: "Alimentation", description: "Besoins nutritionnels et digestion" },
+      { id: "svt-alimentation", title: "Alimentation et digestion", description: "Besoins nutritionnels et appareil digestif" },
+      { id: "svt-respiration", title: "Respiration et circulation", description: "Comment l'oxygène arrive aux organes" },
+      { id: "svt-plantes", title: "Les plantes", description: "Photosynthèse, floraison et reproduction" },
+      { id: "svt-roches", title: "La Terre et les roches", description: "Séismes, volcans et plaques tectoniques" },
     ],
   },
   {
@@ -88,8 +100,10 @@ export const SUBJECTS: Subject[] = [
     chapters: [
       { id: "arts-couleurs", title: "Couleurs et contrastes", description: "Cercle chromatique et mélanges" },
       { id: "arts-perspective", title: "La perspective", description: "Donner une impression de profondeur" },
+      { id: "arts-volume", title: "Modeler en volume", description: "Assemblage, sculpture et maquette" },
     ],
   },
+  ...EXTRA_SUBJECTS,
 ];
 
 // ---------------------------------------------------------------------------
@@ -197,6 +211,57 @@ export const QUESTION_BANK: Record<string, Seed[]> = {
     { q: "En perspective, les lignes parallèles se rejoignent…", options: ["Au point de fuite", "Au centre du dessin", "En haut de la feuille", "Nulle part"], answer: "Au point de fuite", why: "C'est ce qui crée la profondeur." },
     { q: "Plus un objet est loin, plus il paraît…", options: ["Petit", "Grand", "Net", "Coloré"], answer: "Petit", why: "La taille apparente diminue avec la distance." },
   ],
+  // --- chapitres ajoutés (programme de 5e) ---
+  "maths-triangles": [
+    { q: "La somme des angles d'un triangle vaut…", options: ["180°", "90°", "360°", "100°"], answer: "180°", why: "Quel que soit le triangle, la somme des trois angles fait 180°." },
+    { q: "Un triangle avec trois côtés égaux est…", options: ["Équilatéral", "Isocèle", "Rectangle", "Quelconque"], answer: "Équilatéral", why: "Équilatéral = 3 côtés égaux ; isocèle = 2." },
+    { q: "Une médiatrice passe par…", options: ["Le milieu d'un côté, perpendiculairement", "Un sommet et le milieu opposé", "Le centre du cercle inscrit seulement", "Les trois côtés en diagonale"], answer: "Le milieu d'un côté, perpendiculairement", why: "C'est la perpendiculaire au milieu du côté." },
+    { q: "Une figure a un axe de symétrie quand…", options: ["Le pliage superpose les deux moitiés", "Elle a des angles droits", "Elle est colorée", "Ses côtés sont parallèles"], answer: "Le pliage superpose les deux moitiés", why: "La symétrie axiale est un pliage qui superpose exactement." },
+  ],
+  "maths-aires": [
+    { q: "L'aire d'un rectangle de 5 cm sur 3 cm est…", options: ["15 cm²", "8 cm²", "16 cm²", "30 cm²"], answer: "15 cm²", why: "Aire = longueur × largeur = 15 cm²." },
+    { q: "Le périmètre d'un carré de 4 cm de côté :", options: ["16 cm", "8 cm", "16 cm²", "4 cm"], answer: "16 cm", why: "4 côtés × 4 cm = 16 cm (une longueur, pas une aire)." },
+    { q: "L'aire d'un triangle se calcule par…", options: ["(base × hauteur) / 2", "base + hauteur", "côté × côté", "2 × base"], answer: "(base × hauteur) / 2", why: "Le triangle est la moitié d'un rectangle." },
+    { q: "1 m² est égal à…", options: ["10 000 cm²", "100 cm²", "1 000 cm²", "100 m²"], answer: "10 000 cm²", why: "1 m = 100 cm, donc 100 × 100 = 10 000 cm²." },
+  ],
+  "francais-conjugaison": [
+    { q: "« Il ___ quand je suis arrivé. » (dormir, imparfait)", options: ["dormait", "dormit", "dormira", "dort"], answer: "dormait", why: "L'imparfait décrit l'action en cours, le décor." },
+    { q: "« J'___ mes devoirs. » (finir, passé composé)", options: ["ai fini", "suis fini", "avais fini", "finissais"], answer: "ai fini", why: "Passé composé = avoir au présent + participe passé." },
+    { q: "Le passé composé se forme avec…", options: ["Avoir ou être + participe passé", "L'imparfait + infinitif", "Le présent + -s", "Être + infinitif"], answer: "Avoir ou être + participe passé", why: "Ex. : j'ai mangé / je suis parti." },
+    { q: "Quel temps pour le décor dans un récit au passé ?", options: ["L'imparfait", "Le passé simple", "Le futur", "Le présent"], answer: "L'imparfait", why: "Imparfait = décor ; passé simple = actions." },
+  ],
+  "francais-grammaire": [
+    { q: "Dans « le chat noir dort », « noir » est un…", options: ["Adjectif", "Adverbe", "Nom", "Verbe"], answer: "Adjectif", why: "Il qualifie le nom « chat »." },
+    { q: "« Rapidement » est un…", options: ["Adverbe", "Adjectif", "Pronom", "Déterminant"], answer: "Adverbe", why: "Les adverbes en -ment sont invariables." },
+    { q: "Dans « Elle lit un livre », « Elle » est…", options: ["Un pronom", "Un déterminant", "Un nom", "Un adjectif"], answer: "Un pronom", why: "Il remplace un nom (sujet)." },
+    { q: "Un déterminant sert à…", options: ["Introduire le nom", "Remplacer le verbe", "Qualifier l'adverbe", "Relier deux phrases"], answer: "Introduire le nom", why: "Le, la, les, un, mon… introduisent le nom." },
+  ],
+  "histoire-villes": [
+    { q: "Au Moyen Âge, les marchands se retrouvent…", options: ["Sur les foires et les marchés", "Dans les monastères", "Dans les châteaux forts", "Sur les champs"], answer: "Sur les foires et les marchés", why: "Les foires de Champagne sont célèbres." },
+    { q: "Un bourg est…", options: ["Un village qui grandit grâce au commerce", "Un château royal", "Un champ de blé", "Une abbaye"], answer: "Un village qui grandit grâce au commerce", why: "Artisans et marchands s'y installent." },
+    { q: "Les habitants des villes obtiennent des…", options: ["Chartes de franchises", "Titres de noblesse", "Terres seigneuriales", "Fiefs"], answer: "Chartes de franchises", why: "Elles limitent le pouvoir du seigneur." },
+  ],
+  "histoire-revolutions": [
+    { q: "La Révolution française commence en…", options: ["1789", "1515", "1492", "1815"], answer: "1789", why: "La prise de la Bastille a lieu le 14 juillet 1789." },
+    { q: "L'esclavage est définitivement aboli en France en…", options: ["1848", "1789", "1799", "1815"], answer: "1848", why: "Grâce à Victor Schœlcher." },
+    { q: "La colonisation consiste à…", options: ["Dominer et exploiter un territoire lointain", "Échanger des idées", "Protéger une réserve", "Construire des routes"], answer: "Dominer et exploiter un territoire lointain", why: "Colonies de peuplement ou d'exploitation." },
+  ],
+  "anglais-prétérit": [
+    { q: "« I ___ to London last year. »", options: ["went", "go", "gone", "am going"], answer: "went", why: "Prétérit de go : went." },
+    { q: "Prétérit régulier de « play » :", options: ["played", "plaid", "playd", "playing"], answer: "played", why: "Les verbes réguliers prennent -ed." },
+    { q: "« They ___ football yesterday. »", options: ["played", "play", "have played", "playing"], answer: "played", why: "Le prétérit s'emploie avec un marqueur de temps passé." },
+    { q: "Forme interrogative au prétérit :", options: ["Did you go?", "Do you went?", "You went did?", "Are you went?"], answer: "Did you go?", why: "Did + base verbale." },
+  ],
+  "anglais-vie": [
+    { q: "« I go to school ___ Monday. »", options: ["on", "in", "at", "to"], answer: "on", why: "On s'utilise avec les jours." },
+    { q: "« What is your favourite hobby? » demande…", options: ["Ton passe-temps préféré", "Ton adresse", "Ton âge", "Ta classe"], answer: "Ton passe-temps préféré", why: "Hobby = loisir." },
+    { q: "« I have breakfast at 7 am » signifie…", options: ["Je prends le petit-déjeuner à 7h", "Je me couche à 7h", "Je dîne à 7h", "Je pars à 7h"], answer: "Je prends le petit-déjeuner à 7h", why: "Breakfast = petit-déjeuner." },
+  ],
+  "arts-volume": [
+    { q: "Une sculpture qui se voit de tous les côtés est dite…", options: ["En ronde-bosse", "En bas-relief", "Plane", "Perspective"], answer: "En ronde-bosse", why: "On peut en faire le tour." },
+    { q: "Une maquette sert à…", options: ["Représenter un objet en réduction", "Mesurer la lumière", "Écrire une histoire", "Peindre un portrait"], answer: "Représenter un objet en réduction", why: "Elle aide à visualiser un projet." },
+  ],
+  ...EXTRA_QUESTIONS,
 };
 
 // ---------------------------------------------------------------------------
@@ -259,6 +324,7 @@ export const QUESTS: Quest[] = [
 const branches = (raw: [string, string[]][]): MindBranch[] => raw.map(([label, items]) => ({ label, items }));
 
 export const SHEETS: Sheet[] = [
+  ...(EXTRA_SHEETS as Sheet[]),
   {
     id: "s-fractions-methode",
     subject_id: "maths",

@@ -4,12 +4,14 @@ import Shell from "@/components/Shell";
 import ProfilePicker from "@/pages/ProfilePicker";
 import Accueil from "@/pages/Accueil";
 import Matieres from "@/pages/Matieres";
+import GlobePage from "@/pages/GlobePage";
 import MatiereDetail from "@/pages/MatiereDetail";
 import Quiz from "@/pages/Quiz";
 import Quetes from "@/pages/Quetes";
 import Profil from "@/pages/Profil";
 import Professeur from "@/pages/Professeur";
 import Fiches from "@/pages/Fiches";
+import Bibliotheque from "@/pages/Bibliotheque";
 import Atelier from "@/pages/Atelier";
 import Calculatrice from "@/pages/Calculatrice";
 import EmploiDuTemps from "@/pages/EmploiDuTemps";
@@ -26,12 +28,14 @@ export default function App() {
         <Route element={<Shell />}>
           <Route path="/accueil" element={<Accueil />} />
           <Route path="/matieres" element={<Matieres />} />
+          <Route path="/globe" element={<GlobePage />} />
           <Route path="/matieres/:id" element={<MatiereDetail />} />
           <Route path="/quiz/:subjectId/:chapterId" element={<Quiz />} />
           <Route path="/quetes" element={<Quetes />} />
           <Route path="/profil" element={<Profil />} />
           <Route path="/professeur" element={<Professeur />} />
           <Route path="/fiches" element={<Fiches />} />
+          <Route path="/bibliotheque" element={<Bibliotheque />} />
           <Route path="/atelier" element={<Atelier />} />
           <Route path="/calculatrice" element={<Calculatrice />} />
           <Route path="/emploi-du-temps" element={<EmploiDuTemps />} />
