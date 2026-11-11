@@ -43,6 +43,6 @@ http
     res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Not found");
   })
-  .listen(PORT, "127.0.0.1", () => {
+  .listen(PORT, process.env.HOST ?? "127.0.0.1", () => {
     console.log(`Académie de Jana → http://127.0.0.1:${PORT}`);
   });
