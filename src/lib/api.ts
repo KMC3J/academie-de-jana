@@ -124,11 +124,21 @@ function withNewSubjects(saved: DB): DB {
 }
 
 function load(): DB {
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(KEY);
+    raw = localStorage.getItem(KEY);
     if (raw) return withNewSubjects({ ...seed(), ...(JSON.parse(raw) as DB) });
   } catch {
-    /* stockage indisponible ou corrompu : on repart du jeu de départ */
+    // Sauvegarde corrompue : on la met de côté au lieu de la perdre, et on repart
+    // de la dernière copie du jour si elle existe.
+    try {
+      if (raw) localStorage.setItem(`academie.broken.${Date.now()}`, raw);
+      const last = allKeys().filter((k) => k.startsWith(BACKUP_PREFIX)).sort().pop();
+      const backup = last ? localStorage.getItem(last) : null;
+      if (backup) return withNewSubjects({ ...seed(), ...(JSON.parse(backup) as DB) });
+    } catch {
+      /* on tombe sur le jeu de départ */
+    }
   }
   const fresh = seed();
   // Sauvegarde immédiate : les autres modules lisent le même magasin dès le démarrage.
@@ -140,11 +150,48 @@ function load(): DB {
   return fresh;
 }
 
+const BACKUP_PREFIX = "academie.backup.";   // une copie par jour, les 7 dernières
+const SNAPSHOT_PREFIX = "academie.snapshot."; // copies manuelles (export)
+let storageWarned = false;
+
+/** Date locale au format AAAA-MM-JJ (les copies sont rangées par jour). */
+function localDay(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Les clés de ce stockage, quel que soit le navigateur. */
+function allKeys(): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k) out.push(k);
+  }
+  return out;
+}
+
 function save() {
+  const json = JSON.stringify(db);
   try {
-    localStorage.setItem(KEY, JSON.stringify(db));
+    localStorage.setItem(KEY, json);
   } catch {
-    /* quota dépassé (gros dessins) : l'état reste en mémoire */
+    // Quota dépassé (gros dessins) : on prévient une fois, et on continue en mémoire.
+    if (!storageWarned) {
+      storageWarned = true;
+      window.dispatchEvent(new CustomEvent("academie:storage-full"));
+    }
+    return;
+  }
+  // Copie de sécurité du jour : c'est elle qui protège le travail de Jana.
+  try {
+    const dayKey = BACKUP_PREFIX + localDay();
+    if (!localStorage.getItem(dayKey)) {
+      localStorage.setItem(dayKey, json);
+      // On ne garde que les 7 copies les plus récentes.
+      const keys = allKeys().filter((k) => k.startsWith(BACKUP_PREFIX)).sort();
+      for (const k of keys.slice(0, Math.max(0, keys.length - 7))) localStorage.removeItem(k);
+    }
+  } catch {
+    /* les copies sont un bonus : si elles ne passent pas, la sauvegarde principale reste bonne */
   }
 }
 
@@ -862,8 +909,65 @@ export async function apiStream(path: string, body: unknown, onDelta: (text: str
   }
 }
 
-/** Réinitialise l'Académie (profils, progression, contenus ajoutés). */
+/**
+ * Réinitialise l'Académie — réservé aux parents (code 1234) et après confirmation.
+ * Une copie complète est créée juste avant, pour pouvoir revenir en arrière.
+ */
 export function resetAcademy() {
+  try {
+    localStorage.setItem(`${SNAPSHOT_PREFIX}avant-reset-${Date.now()}`, JSON.stringify(db));
+  } catch {
+    /* pas de copie possible : on continue, l'appelant a déjà confirmé */
+  }
   db = seed();
   save();
+}
+
+/** Exporte tout le travail de Jana dans un fichier JSON (sauvegarde à garder). */
+export function exportAcademy(): string {
+  return JSON.stringify({ exported_at: new Date().toISOString(), version: 1, db }, null, 2);
+}
+
+/** Télécharge la sauvegarde sur l'ordinateur. */
+export function downloadAcademyBackup(filename?: string) {
+  const blob = new Blob([exportAcademy()], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename ?? `academie-jana-${localDay()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Restaure une sauvegarde exportée plus tôt. Renvoie false si le fichier n'est pas reconnu. */
+export function importAcademy(json: string): boolean {
+  try {
+    const parsed = JSON.parse(json) as { db?: DB } | DB;
+    const incoming = (parsed as { db?: DB }).db ?? (parsed as DB);
+    if (!incoming || !Array.isArray(incoming.profiles) || !Array.isArray(incoming.subjects)) return false;
+    // Copie de sécurité de l'état actuel avant d'écraser quoi que ce soit.
+    try {
+      localStorage.setItem(`${SNAPSHOT_PREFIX}avant-restauration-${Date.now()}`, JSON.stringify(db));
+    } catch { /* ignore */ }
+    db = { ...seed(), ...incoming };
+    save();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Les copies automatiques disponibles (une par jour, 7 jours gardés). */
+export function listBackups(): { key: string; date: string }[] {
+  return allKeys()
+    .filter((k) => k.startsWith(BACKUP_PREFIX))
+    .sort()
+    .reverse()
+    .map((k) => ({ key: k, date: k.replace(BACKUP_PREFIX, "") }));
+}
+
+/** Restaure la copie d'un jour donné. */
+export function restoreBackup(key: string): boolean {
+  const raw = localStorage.getItem(key);
+  return raw ? importAcademy(raw) : false;
 }

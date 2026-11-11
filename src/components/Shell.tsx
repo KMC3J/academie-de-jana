@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import {
   CalendarDays, Calculator, Castle, Clock, Globe2, GraduationCap, LogOut, Map, Menu, NotebookPen, Palette, ScrollText,
   Sparkles, Star, Gem, UserRound, BookOpen, RotateCcw, Library,
@@ -78,14 +79,28 @@ export default function Shell() {
   useHeartbeat(id);
   if (!id) return <Navigate to="/" replace />;
 
+  useEffect(() => {
+    const onFull = () =>
+      toast.error("Le stockage du navigateur est plein : préviens un parent pour exporter une sauvegarde.");
+    window.addEventListener("academie:storage-full", onFull);
+    return () => window.removeEventListener("academie:storage-full", onFull);
+  }, []);
+
   const leave = () => {
     setCurrentProfile(null);
     navigate("/");
   };
 
   // Remet l'Académie dans son état de départ (profils, progression, contenus ajoutés).
-  const reset = () => {
-    if (!window.confirm("Réinitialiser l'Académie ? Toute la progression et les contenus ajoutés seront effacés.")) return;
+  const reset = async () => {
+    if (!window.confirm("Réinitialiser l'Académie ? Une copie de sécurité est faite avant, mais la progression sera remise à zéro.")) return;
+    // Opération réservée aux parents : sans le code, rien n'est effacé.
+    try {
+      await apiPost("/parent/unlock", { pin: window.prompt("Code parent pour confirmer la réinitialisation :") ?? "" });
+    } catch {
+      alert("Code parent incorrect : rien n'a été effacé.");
+      return;
+    }
     resetAcademy();
     setCurrentProfile(null);
     navigate("/");

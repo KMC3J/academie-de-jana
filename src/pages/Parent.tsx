@@ -13,6 +13,7 @@ import ParentQuests from "@/components/parent/ParentQuests";
 import ParentSheets from "@/components/parent/ParentSheets";
 import ParentTimetable from "@/components/parent/ParentTimetable";
 import ParentBooks from "@/components/parent/ParentBooks";
+import ParentBackup from "@/components/parent/ParentBackup";
 import { fieldLabel, panel, useParentMutation } from "@/components/parent/common";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -118,6 +119,7 @@ export default function Parent() {
               <TabsTrigger value="fiches" data-testid="parent-tab-fiches">Fiches & cartes</TabsTrigger>
               <TabsTrigger value="livres" data-testid="parent-tab-livres">Bibliothèque</TabsTrigger>
               <TabsTrigger value="edt" data-testid="parent-tab-edt">Emploi du temps</TabsTrigger>
+              <TabsTrigger value="sauvegarde" data-testid="parent-tab-sauvegarde">Sauvegarde</TabsTrigger>
               <TabsTrigger value="code" data-testid="parent-tab-code">Code parent</TabsTrigger>
             </TabsList>
             <TabsContent value="suivi" className="mt-6"><ParentStatsView /></TabsContent>
@@ -127,6 +129,7 @@ export default function Parent() {
             <TabsContent value="fiches" className="mt-6"><ParentSheets /></TabsContent>
             <TabsContent value="livres" className="mt-6"><ParentBooks /></TabsContent>
             <TabsContent value="edt" className="mt-6"><ParentTimetable /></TabsContent>
+            <TabsContent value="sauvegarde" className="mt-6"><ParentBackup /></TabsContent>
             <TabsContent value="code" className="mt-6"><ParentPinForm /></TabsContent>
           </Tabs>
         )}

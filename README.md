@@ -127,7 +127,24 @@ fournisseur choisi. Si l'appel échoue (clé refusée, hors ligne), l'app répon
 avec ses leçons locales au lieu de laisser l'élève sans réponse.
 
 ### Espace parent
-Code par défaut : **1234**.
+Code par défaut : **1234**. Onglets : Suivi, Enfants, Matières & chapitres,
+Quêtes, Fiches & cartes, Bibliothèque (ajout de livres sans coder), Emploi du
+temps, **Sauvegarde**, Code parent.
+
+### Ne rien perdre
+Le travail (progression, créations, dictées, livres ajoutés) vit dans le
+`localStorage` du navigateur. Trois garde-fous :
+
+1. **Copie automatique quotidienne** (`academie.backup.AAAA-MM-JJ`, 7 jours
+   conservés) écrite à chaque enregistrement.
+2. **Export / restauration** depuis l'espace parent → onglet **Sauvegarde** :
+   téléchargement d'un fichier `academie-jana-AAAA-MM-JJ.json`, restauration par
+   fichier ou depuis une copie du jour (l'état courant est mis de côté avant).
+3. **Sauvegarde illisible** : elle est conservée sous `academie.broken.*` et
+   l'app repart de la dernière copie valide au lieu d'écraser quoi que ce soit.
+
+Le bouton « Réinitialiser l'Académie » exige désormais le **code parent** et crée
+une copie complète juste avant.
 
 ## Scripts de données
 
