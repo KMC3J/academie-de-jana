@@ -28,7 +28,7 @@ const STOP = new Set([
   "the", "and", "this", "cette", "cest", "jai", "je", "tu", "il", "elle", "nous", "vous", "ils", "elles",
 ]);
 
-const keywords = (s: string) => norm(s).split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w));
+const keywords = (s: string) => norm(s).split(/[\s-]+/).filter((w) => w.length > 3 && !STOP.has(w));
 
 /** Étape 1 : la question de relance (aucun contenu de cours). */
 export function probeQuestion(message: string, profile: Profile): string {
@@ -215,3 +215,25 @@ export function stepOf(history: ChatMessage[], message: string, memory: Memory):
   }
   return "probe";
 }
+
+/** Enveloppe une leçon (fiche + chapitre + exemples) en réponse directe de la professeure. */
+export function lessonAnswer(message: string, profile: Profile, lesson: string): string {
+  const kw = keywords(message).filter((w) => !["explique", "expliques", "comment", "pourquoi", "cest", "quoi"].includes(w))[0];
+  const intro = kw
+    ? `Bien sûr, ${profile.name} ! Parlons de **${kw}**. Voici la leçon, avec des exemples :`
+    : `Bien sûr, ${profile.name} ! Voici la leçon, avec des exemples :`;
+  return `${intro}\n\n${lesson}\n\nSi un point reste flou, demande-moi de le reprendre : je peux détailler étape par étape.`;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt du modèle : une professeure qui explique vraiment, avec des exemples
+// ---------------------------------------------------------------------------
+export const TUTOR_SYSTEM = `Tu es Dame Morgane, professeure de "L'Académie de Jana", une école magique pour une élève de 5e (12 ans). Tu réponds en français.
+TON RÔLE : aider vraiment l'élève. Tu DONNES la réponse et l'explication, tu ne laisses jamais l'élève sans solution.
+MÉTHODE POUR CHAQUE RÉPONSE :
+1. Une phrase de réponse directe à la question.
+2. L'explication pas à pas (2 à 4 étapes numérotées), dans les mots d'une élève de 12 ans.
+3. Au moins UN exemple concret et résolu (un calcul, une phrase d'espagnol, un cas historique...).
+4. Un mini-« à retenir » en une ligne.
+5. Une question de vérification simple pour finir (« Et si je te demandais… ? »).
+Style : chaleureux, imagé (château, potions, runes) mais sobre. 6 à 12 phrases maximum. Aucune réponse bâclée : si tu ne sais pas, dis-le et propose une piste.`;

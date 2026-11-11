@@ -89,8 +89,13 @@ Onglet « Dictée » de l'atelier : 5 dictées de 5e, correction mot à mot
 `/bibliotheque` — 7 livres courts (roman, mythe, documentaire, poèmes, théâtre)
 avec 2 questions de compréhension par livre, et récompense XP/étoiles.
 
-### Dame Morgane, professeure socratique
-`/professeur` — elle ne donne **jamais** la réponse au premier message :
+### Dame Morgane, la professeure
+`/professeur` — deux façons de répondre (boutons dans la colonne de gauche) :
+
+**« Explications directes, avec exemples » (par défaut)** : elle répond vraiment —
+la réponse, l'explication, un exemple résolu et un exercice à faire.
+
+**« Méthode socratique (indices d'abord) »** : elle ne donne pas la réponse au premier message :
 
 1. **relance** : elle te demande ce que tu sais déjà ;
 2. **indice** : tape `indice` (ou « aide », « je ne sais pas ») → un seul indice,
@@ -98,11 +103,21 @@ avec 2 questions de compréhension par livre, et récompense XP/étoiles.
 3. **explication** : après ton essai (ou si tu redemandes la réponse) → la leçon
    complète, pas à pas.
 
-Le moteur est dans `src/lib/socratic.ts`. Si une clé API est enregistrée
-(bouton « Connecter une IA » : OpenAI, Mistral ou Groq), la question part
-réellement vers le modèle avec un prompt qui impose les trois étapes ; sinon
-elle répond en local à partir des fiches et des chapitres. La clé reste dans le
-navigateur (`localStorage`) et n'est envoyée qu'au fournisseur choisi.
+Le moteur est dans `src/lib/socratic.ts` et `src/lib/provider.ts`.
+
+**Connecter une IA (clé gratuite, sans carte bancaire)** — bouton
+« Connecter une IA gratuite » :
+| Fournisseur | Clé gratuite | Modèle par défaut |
+|---|---|---|
+| Google Gemini (Google AI Studio) | https://aistudio.google.com/apikey | gemini-2.0-flash |
+| Groq | https://console.groq.com/keys | llama-3.3-70b-versatile |
+| OpenRouter | https://openrouter.ai/keys | llama-3.3-70b-instruct:free |
+| Mistral | https://console.mistral.ai/api-keys | mistral-small-latest |
+| OpenAI | payant | gpt-4o-mini |
+
+La clé reste dans le navigateur (`localStorage`) et n'est envoyée qu'au
+fournisseur choisi. Si l'appel échoue (clé refusée, hors ligne), l'app répond
+avec ses leçons locales au lieu de laisser l'élève sans réponse.
 
 ### Espace parent
 Code par défaut : **1234**.

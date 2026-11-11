@@ -21,7 +21,8 @@ import {
   TIMETABLE,
   defaultProfiles,
 } from "@/data/seed";
-import { fullExplanation, giveHint, probeQuestion, SOCRATIC_SYSTEM, stepOf } from "@/lib/socratic";
+import { fullExplanation, giveHint, lessonAnswer, probeQuestion, stepOf, TUTOR_SYSTEM } from "@/lib/socratic";
+import { askModel, getTeacherMode } from "@/lib/provider";
 import { LIBRARY_BOOKS } from "@/data/library";
 import type {
   Avatar,
@@ -356,77 +357,89 @@ function submitQuiz(quizId: string, answers: string[]): QuizResult {
   return { score, total, xp_gained: xpGained, stars_gained: starsGained, crystals_gained: crystalsGained, new_badges: [...new Set(newBadges)], items };
 }
 
+/** Le cours complet sur un sujet : fiche(s) + chapitre + explications du quiz. */
+function lessonFor(message: string, subjectId: string | null): string | null {
+  const kws = normalizeText(message).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3 && !FR_STOP.has(w));
+  if (kws.length === 0) return null;
+  const stem = (w: string) => w.replace(/(aux|als|es|s|x)$/, "");
+
+  /** score = nombre de mots du sujet présents dans le texte, pondéré par la longueur du mot */
+  const scoreOf = (text: string) => {
+    let score = 0;
+    for (const w of kws) {
+      const st = stem(w);
+      if (st.length >= 4 && text.includes(st)) score += st.length;
+    }
+    return score;
+  };
+
+  const scoped = subjectId ? subjects().filter((x) => x.id === subjectId) : subjects();
+
+  let bestSheet: { sh: (typeof db.sheets)[number]; score: number } | null = null;
+  for (const sh of db.sheets) {
+    const score = scoreOf(normalizeText(`${sh.title} ${sh.content} ${sh.branches.map((b) => b.label + " " + b.items.join(" ")).join(" ")}`));
+    if (score > 0 && (!bestSheet || score > bestSheet.score)) bestSheet = { sh, score };
+  }
+
+  let bestChapter: { s: Subject; c: Subject["chapters"][number]; score: number } | null = null;
+  for (const s of scoped) {
+    for (const c of s.chapters) {
+      const score = scoreOf(normalizeText(`${c.title} ${c.description}`));
+      if (score > 0 && (!bestChapter || score > bestChapter.score)) bestChapter = { s, c, score };
+    }
+  }
+
+  if (!bestSheet && !bestChapter) return null;
+
+  // le chapitre gagne s'il colle mieux au sujet que la fiche
+  const useChapter = bestChapter && (!bestSheet || bestChapter.score > bestSheet.score);
+  const parts: string[] = [];
+
+  if (useChapter && bestChapter) {
+    parts.push(`**${bestChapter.c.title}** (${bestChapter.s.name}) — ${bestChapter.c.description}`);
+  }
+  if (bestSheet) {
+    const body =
+      bestSheet.sh.kind === "carte"
+        ? bestSheet.sh.branches.map((b) => `• ${b.label} : ${b.items.join(", ")}`).join("\n")
+        : bestSheet.sh.content;
+    parts.push(`**${bestSheet.sh.title}**\n${body}`);
+  } else if (!useChapter && bestChapter) {
+    parts.push(`**${bestChapter.c.title}** (${bestChapter.s.name}) — ${bestChapter.c.description}`);
+  }
+
+  const questions = bestChapter ? QUESTION_BANK[bestChapter.c.id] ?? [] : [];
+  if (questions.length > 0) {
+    parts.push(
+      `**Exemples et à retenir :**\n` +
+        questions.slice(0, 3).map((q) => `• ${q.q.replace(/\s*\?$/, "")} → **${q.answer}**. ${q.why}`).join("\n"),
+    );
+  }
+
+  const exo = questions[0];
+  const subj = bestSheet ? subjects().find((x) => x.id === bestSheet!.sh.subject_id) : bestChapter?.s;
+  return `${parts.join("\n\n")}${exo ? `\n\n**À toi :** « ${exo.q.replace(/\s*\?$/, "")} ? » — réponds, je corrige.` : ""}${subj ? `\n\n(Fiche de la Bibliothèque : ${subj.magic_name}.)` : ""}`;
+}
+
+const FR_STOP = new Set([
+  "comment", "pourquoi", "quand", "quelle", "quelles", "quel", "quels", "cest", "quoi", "dans", "avec", "pour",
+  "mais", "plus", "moins", "fait", "faire", "peux", "peut", "aide", "aider", "moi", "explique", "expliques",
+  "expliquer", "dire", "donne", "donnes", "dis", "sais", "sur", "une", "des", "les", "mon", "ton", "cette",
+  "jai", "elle", "nous", "vous", "ils", "elles", "sont", "est-ce", "dit-on", "diton", "veut", "signifie",
+  "merci", "bonjour", "stp", "svp", "please", "alors", "donc", "aussi", "tout", "tous", "explique-moi",
+]);
+
+function normalizeText(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 // ---------------------------------------------------------------------------
 // Professeur magique
-//   · si une clé API est configurée dans l'app (Paramètres → clé fournisseur),
-//     la question est envoyée au vrai modèle de langage ;
-//   · sinon, réponse locale construite à partir des fiches et des chapitres.
+//   · une clé d'IA gratuite est configurée → la question part au vrai modèle ;
+//   · sinon (ou en cas d'échec réseau) → leçon locale construite à partir des
+//     fiches, des chapitres et des questions, avec un exemple résolu.
 // ---------------------------------------------------------------------------
-const TEACHER_SYSTEM = SOCRATIC_SYSTEM;
-
-type ProviderConfig = { provider: string; model: string; apiKey: string };
-
-const PROVIDER_KEY = "academie.ai.v1";
-
-export function getAiConfig(): ProviderConfig {
-  try {
-    const raw = localStorage.getItem(PROVIDER_KEY);
-    if (raw) return { provider: "openai", model: "gpt-4o-mini", apiKey: "", ...(JSON.parse(raw) as Partial<ProviderConfig>) };
-  } catch { /* ignore */ }
-  return { provider: "openai", model: "gpt-4o-mini", apiKey: "" };
-}
-
-export function setAiConfig(cfg: Partial<ProviderConfig>) {
-  localStorage.setItem(PROVIDER_KEY, JSON.stringify({ ...getAiConfig(), ...cfg }));
-}
-
-/** Appelle réellement le modèle. Renvoie null si aucune clé n'est configurée. */
-async function askModel(step: "probe" | "hint" | "explain", message: string, subjectName: string | null, profile: Profile, history: ChatMessage[]): Promise<string | null> {
-  const { provider, model, apiKey } = getAiConfig();
-  if (!apiKey) return null;
-
-  const endpoints: Record<string, { url: string; headers: Record<string, string> }> = {
-    openai: { url: "https://api.openai.com/v1/chat/completions", headers: { Authorization: `Bearer ${apiKey}` } },
-    mistral: { url: "https://api.mistral.ai/v1/chat/completions", headers: { Authorization: `Bearer ${apiKey}` } },
-    groq: { url: "https://api.groq.com/openai/v1/chat/completions", headers: { Authorization: `Bearer ${apiKey}` } },
-  };
-  const ep = endpoints[provider] ?? endpoints.openai;
-
-  const context = (subjectName ? `\nMatière en cours : ${subjectName}.` : "") +
-    `\nÉtape imposée pour ce message : ${
-      step === "probe" ? "PREMIER contact — pose une question, ne donne AUCUNE réponse ni indice." :
-      step === "hint" ? "l'élève demande de l'aide — donne UN seul indice, sans la réponse." :
-      "l'élève a cherché — donne maintenant l'explication complète, pas à pas."
-    }`;
-  const body = {
-    model,
-    temperature: 0.6,
-    max_tokens: 600,
-    messages: [
-      { role: "system", content: TEACHER_SYSTEM + context + `\nL'élève s'appelle ${profile.name}.` },
-      ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
-      { role: "user", content: message },
-    ],
-  };
-
-  try {
-    const res = await fetch(ep.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...ep.headers },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.warn("[Dame Morgane] appel IA refusé :", res.status, detail.slice(0, 200));
-      return null;
-    }
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = data.choices?.[0]?.message?.content?.trim();
-    return text && text.length > 0 ? text : null;
-  } catch {
-    return null;
-  }
-}
+const TEACHER_SYSTEM = TUTOR_SYSTEM;
 
 // ---------------------------------------------------------------------------
 // Routeur
@@ -727,21 +740,35 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
     const p = findProfile(pid);
     const message = String(b.message ?? "");
     const subjectId = (b.subject_id as string | null) ?? null;
-    const previous = db.chat[pid] ?? [];
+    // Pendant qu'une réponse s'écrit, on n'inclut pas le dernier échange :
+    // sinon le message s'affiche deux fois (historique + bulle en cours).
+    const all = db.chat[pid] ?? [];
+    const previous = all.length > 0 && all[all.length - 1].role === "assistant" ? all : all.slice(0, -1);
     const subjectName = subjectId ? subjects().find((s) => s.id === subjectId)?.name ?? null : null;
     const said = previous.filter((m) => m.role === "user").map((m) => m.content);
     const lastReply = [...previous].reverse().find((m) => m.role === "assistant")?.content ?? "";
     const memory = { tried: said.length > 0, hinted: /indice/i.test(lastReply) };
-    const step = stepOf(previous, message, memory);
+    const mode = (b.mode as string) ?? getTeacherMode();
+    const step = mode === "socratic" ? stepOf(previous, message, memory) : "explain";
+    const lesson = lessonFor(message, subjectId);
     const local =
-      step === "explain"
-        ? fullExplanation(message, subjectId, subjects(), db.sheets, p, QUESTION_BANK)
-        : step === "hint"
-          ? `${giveHint(message, subjectId, subjects(), db.sheets, QUESTION_BANK)}`
-          : probeQuestion(message, p);
-    const reply = (await askModel(step, message, subjectName, p, previous)) ?? local;
+      mode === "socratic" && step === "probe"
+        ? probeQuestion(message, p)
+        : mode === "socratic" && step === "hint"
+          ? giveHint(message, subjectId, subjects(), db.sheets, QUESTION_BANK)
+          : lesson
+            ? lessonAnswer(message, p, lesson)
+            : fullExplanation(message, subjectId, subjects(), db.sheets, p, QUESTION_BANK);
+    // Le message est enregistré tout de suite : l'historique reste propre même si
+    // l'appel au modèle échoue ou si l'utilisateur rafraîchit la page.
+    const chat = db.chat[pid] ?? [];
+    chat.push({ id: uid(), role: "user", content: message, created_at: new Date().toISOString() });
+    db.chat[pid] = chat;
+    save();
+
+    const system = subjectName ? `${TEACHER_SYSTEM}\nMatière en cours : ${subjectName}.` : TEACHER_SYSTEM;
+    const reply = (await askModel(system, message, p, previous)) ?? local;
     const list = db.chat[pid] ?? [];
-    list.push({ id: uid(), role: "user", content: message, created_at: new Date().toISOString() });
     list.push({ id: uid(), role: "assistant", content: reply, created_at: new Date().toISOString() });
     db.chat[pid] = list;
     save();

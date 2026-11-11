@@ -4,7 +4,8 @@ import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { BrainCircuit, Eraser, KeyRound, Loader2, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { apiDelete, apiGet, apiStream, getAiConfig, setAiConfig } from "@/lib/api";
+import { apiDelete, apiGet, apiStream } from "@/lib/api";
+import { getAiConfig, getTeacherMode, PROVIDERS, setAiConfig, setTeacherMode, type ProviderId, type TeacherMode } from "@/lib/provider";
 import { IMAGES, useProfile, useProfileId, useSubjects } from "@/lib/academy";
 import { setActivity } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,11 @@ export default function Professeur() {
   const [ai, setAi] = useState(getAiConfig);
   const [showKey, setShowKey] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
+  const [modelDraft, setModelDraft] = useState(ai.model);
+  const [mode, setMode] = useState<TeacherMode>(getTeacherMode);
   const aiReady = ai.apiKey.trim().length > 0;
+  const providerDef = PROVIDERS.find((p) => p.id === ai.provider) ?? PROVIDERS[0];
+  const chooseMode = (m: TeacherMode) => { setMode(m); setTeacherMode(m); };
   const bottom = useRef<HTMLDivElement>(null);
 
   const { data: history } = useQuery({
@@ -113,11 +118,9 @@ export default function Professeur() {
           </p>
           <p className="mt-2 text-xs leading-relaxed" data-testid="teacher-ai-status">
             {aiReady ? (
-              <span className="text-[#6EE7B7]">IA connectée ({ai.provider} · {ai.model}).</span>
+              <span className="text-[#6EE7B7]">IA connectée ({providerDef.label} · {ai.model}).</span>
             ) : (
-              <span className="text-[#FCA5A5]">
-                Mode local : réponses préparées à partir des fiches. Ajoute une clé API pour une vraie IA.
-              </span>
+              <span className="text-[#FCA5A5]">Mode leçons : réponses préparées à partir des fiches. Ajoute une clé gratuite pour une vraie IA.</span>
             )}
           </p>
 
@@ -127,36 +130,52 @@ export default function Professeur() {
                 className="w-full rounded-lg border border-white/10 bg-[#0D0B18] px-2 py-1.5 text-xs text-white"
                 value={ai.provider}
                 onChange={(e) => {
-                  const provider = e.target.value;
-                  const model = provider === "mistral" ? "mistral-small-latest" : provider === "groq" ? "llama-3.3-70b-versatile" : "gpt-4o-mini";
-                  const next = { ...ai, provider, model };
-                  setAi(next);
-                  setAiConfig(next);
+                  const id = e.target.value as ProviderId;
+                  const def = PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
+                  setModelDraft(def.model);
+                  setAi({ ...ai, provider: id, model: def.model });
                 }}
                 data-testid="teacher-ai-provider"
               >
-                <option value="openai">OpenAI</option>
-                <option value="mistral">Mistral</option>
-                <option value="groq">Groq</option>
+                {PROVIDERS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}{p.free ? " — gratuit" : " — payant"}</option>
+                ))}
               </select>
+              <p className="text-[11px] leading-snug text-[#9D95C2]">{providerDef.hint}</p>
               <input
                 type="password"
                 className="w-full rounded-lg border border-white/10 bg-[#0D0B18] px-2 py-1.5 text-xs text-white"
-                placeholder="Clé API (sk-…)"
+                placeholder="Colle ta clé API ici"
                 value={keyDraft}
                 onChange={(e) => setKeyDraft(e.target.value)}
                 data-testid="teacher-ai-key"
               />
+              <input
+                className="w-full rounded-lg border border-white/10 bg-[#0D0B18] px-2 py-1.5 text-xs text-white"
+                placeholder="Modèle"
+                value={modelDraft}
+                onChange={(e) => setModelDraft(e.target.value)}
+                data-testid="teacher-ai-model"
+              />
+              <a
+                href={providerDef.keyUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block text-[11px] text-[#FDE68A] underline"
+                data-testid="teacher-ai-keylink"
+              >
+                Obtenir une clé gratuite {providerDef.label} →
+              </a>
               <div className="flex gap-2">
                 <Button
                   size="sm"
                   data-testid="teacher-ai-save"
                   onClick={() => {
-                    const next = { ...ai, apiKey: keyDraft.trim() };
+                    const next = { ...ai, apiKey: keyDraft.trim(), model: modelDraft.trim() || providerDef.model };
                     setAi(next);
                     setAiConfig(next);
                     setShowKey(false);
-                    toast.success(next.apiKey ? "IA connectée !" : "Clé retirée : mode local.");
+                    toast.success(next.apiKey ? "IA connectée !" : "Clé retirée : mode leçons.");
                   }}
                 >
                   Enregistrer
@@ -172,12 +191,34 @@ export default function Professeur() {
               size="sm"
               variant="ghost"
               className="mt-2 text-[#C4B5FD]"
-              onClick={() => { setKeyDraft(ai.apiKey); setShowKey(true); }}
+              onClick={() => { setKeyDraft(ai.apiKey); setModelDraft(ai.model); setShowKey(true); }}
               data-testid="teacher-ai-configure"
             >
-              <KeyRound /> {aiReady ? "Changer de clé" : "Connecter une IA"}
+              <KeyRound /> {aiReady ? "Changer de clé" : "Connecter une IA gratuite"}
             </Button>
           )}
+
+          <div className="mt-4 border-t border-white/5 pt-3">
+            <p className="text-xs text-[#C4B5FD]">Façon de répondre</p>
+            <div className="mt-2 flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => chooseMode("lesson")}
+                data-testid="teacher-mode-lesson"
+                className={`rounded-lg px-2 py-1.5 text-left text-xs transition-[background-color] ${mode === "lesson" ? "bg-[#F59E0B] text-[#1A1202]" : "bg-white/5 text-[#C7C0E0] hover:bg-white/10"}`}
+              >
+                Explications directes, avec exemples
+              </button>
+              <button
+                type="button"
+                onClick={() => chooseMode("socratic")}
+                data-testid="teacher-mode-socratic"
+                className={`rounded-lg px-2 py-1.5 text-left text-xs transition-[background-color] ${mode === "socratic" ? "bg-[#F59E0B] text-[#1A1202]" : "bg-white/5 text-[#C7C0E0] hover:bg-white/10"}`}
+              >
+                Méthode socratique (indices d'abord)
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 
