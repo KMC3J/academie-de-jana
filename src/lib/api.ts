@@ -23,7 +23,7 @@ import {
 } from "@/data/seed";
 import { fullExplanation, giveHint, lessonAnswer, probeQuestion, stepOf, TUTOR_SYSTEM } from "@/lib/socratic";
 import { askModel, getTeacherMode } from "@/lib/provider";
-import { LIBRARY_BOOKS } from "@/data/library";
+import { LIBRARY_BOOKS, type Book } from "@/data/library";
 import type {
   Avatar,
   BadgeDef,
@@ -77,6 +77,7 @@ type DB = {
   chat: Record<string, ChatMessage[]>;
   screen: Record<string, Record<string, Record<string, number>>>; // profileId → date → subject → s
   quizLog: Record<string, { score: number; total: number }[]>;
+  books: Book[];
   parentPin: string;
   parentUnlocked: boolean;
 };
@@ -95,6 +96,7 @@ function seed(): DB {
     chat: {},
     screen: {},
     quizLog: {},
+    books: structuredClone(LIBRARY_BOOKS),
     parentPin: "1234",
     parentUnlocked: false,
   };
@@ -458,10 +460,10 @@ function routeGet(path: string, query: URLSearchParams): unknown {
   // ---- Bibliothèque (livres)
   if (path === "/books") {
     const sid = query.get("subject_id");
-    return sid ? LIBRARY_BOOKS.filter((x) => x.subject_id === sid) : LIBRARY_BOOKS;
+    return sid ? db.books.filter((x) => x.subject_id === sid) : db.books;
   }
   if ((m = path.match(/^\/books\/([^/]+)$/))) {
-    const book = LIBRARY_BOOKS.find((x) => x.id === m![1]);
+    const book = db.books.find((x) => x.id === m![1]);
     if (!book) throw new ApiError(404, { detail: "Livre introuvable" });
     return book;
   }
@@ -697,6 +699,29 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
     s.chapters = s.chapters.filter((x) => x.id !== m![2]);
     save();
     return s;
+  }
+
+  // ---- Bibliothèque (livres ajoutés par les parents)
+  if (path === "/books" && method === "POST") {
+    const { id: _id, ...rest } = b as unknown as Book;
+    const book: Book = { id: uid(), ...rest } as Book;
+    db.books.push(book);
+    save();
+    return book;
+  }
+  if ((m = path.match(/^\/books\/([^/]+)$/))) {
+    const i = db.books.findIndex((x) => x.id === m![1]);
+    if (i < 0) throw new ApiError(404, { detail: "Livre introuvable" });
+    if (method === "PUT") {
+      db.books[i] = { ...db.books[i], ...(b as Partial<Book>), id: m[1] };
+      save();
+      return db.books[i];
+    }
+    if (method === "DELETE") {
+      db.books.splice(i, 1);
+      save();
+      return ok;
+    }
   }
 
   // ---- Fiches

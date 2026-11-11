@@ -5,12 +5,13 @@
 
 export type BookChapter = { title: string; text: string[] };
 export type BookQuestion = { q: string; options: string[]; answer: string };
+export type BookKind = "roman" | "documentaire" | "recueil" | "mythe" | "theatre";
 export type Book = {
   id: string;
   subject_id: string;
   title: string;
   author: string;
-  kind: "roman" | "documentaire" | "recueil" | "mythe" | "theatre";
+  kind: BookKind;
   summary: string;
   minutes: number;
   chapters: BookChapter[];

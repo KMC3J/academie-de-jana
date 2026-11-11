@@ -89,6 +89,13 @@ Onglet « Dictée » de l'atelier : 5 dictées de 5e, correction mot à mot
 `/bibliotheque` — 7 livres courts (roman, mythe, documentaire, poèmes, théâtre)
 avec 2 questions de compréhension par livre, et récompense XP/étoiles.
 
+**Ajouter un livre sans coder** : espace parent (code 1234) → onglet
+**Bibliothèque**. Deux zones de texte suffisent :
+- Chapitres, une ligne par chapitre : `Titre | paragraphe ; paragraphe`
+- Questions, une ligne par question : `Question | bonne réponse | mauvaise 1 | mauvaise 2 | mauvaise 3`
+
+Les livres ajoutés apparaissent aussitôt dans la Bibliothèque de Jana.
+
 ### Dame Morgane, la professeure
 `/professeur` — deux façons de répondre (boutons dans la colonne de gauche) :
 
