@@ -1,19 +1,11 @@
-import rawFlags from "@/data/flags-light.json";
+import rawFlags from "@/data/flags.json";
 
-type LightFlag = { vb: number[]; s: { d: string; fill: string; stroke?: string }[] };
-const FLAGS = rawFlags as Record<string, LightFlag>;
-
-/** Construit le SVG d'un drapeau à partir des formes compactes. */
-function toSvg(flag: LightFlag): string {
-  const [x, y, w, h] = flag.vb;
-  const shapes = flag.s
-    .map((s) => `<path d="${s.d}" fill="${s.fill}"${s.stroke ? ` stroke="${s.stroke}"` : ""}/>`)
-    .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x} ${y} ${w} ${h}" preserveAspectRatio="none" width="100%" height="100%">${shapes}</svg>`;
-}
+const FLAGS = rawFlags as Record<string, string>;
 
 /**
- * Drapeau d'un pays, dessiné en SVG (aucune image à télécharger).
+ * Drapeau d'un pays, en SVG (aucune image à télécharger).
+ * Le SVG est celui d'origine, seulement optimisé : étoiles, armoiries,
+ * dégradés et proportions sont exactement ceux du fichier source.
  * `code` est l'identifiant du pays dans countries.json (FR, DE, JP…).
  */
 export default function Flag({
@@ -27,8 +19,8 @@ export default function Flag({
   className?: string;
   rounded?: boolean;
 }) {
-  const flag = FLAGS[code];
-  if (!flag) {
+  const svg = FLAGS[code];
+  if (!svg) {
     return (
       <span
         className={`inline-flex items-center justify-center bg-[#241E3C] text-[10px] text-[#8B84B0] ${className}`}
@@ -45,7 +37,7 @@ export default function Flag({
       aria-label={name ? `Drapeau : ${name}` : "Drapeau"}
       role="img"
       // Le SVG vient de nos données locales, il est purement décoratif.
-      dangerouslySetInnerHTML={{ __html: toSvg(flag) }}
+      dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 }

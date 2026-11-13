@@ -7,10 +7,10 @@ d'origine, **sans serveur** : toutes les données vivent dans le `localStorage` 
 ## Drapeaux
 
 Les 177 drapeaux sont dessinés en SVG directement dans l'app (aucune image, aucun
-site externe). `scripts/build-flags-light-v2.mjs` les allège : tracés arrondis,
-points inutiles retirés, armoiries simplifiées → **935 Ko** au lieu de 2,4 Mo,
-pour un rendu identique à l'écran. Pour régénérer : `node scripts/build-flags.mjs`
-puis `node scripts/build-flags-light-v2.mjs`.
+site externe). On ne touche **jamais** à leur géométrie : `scripts/build-flags-clean.mjs`
+retire seulement les métadonnées invisibles (XML, titres, indentations), ce qui garantit
+des étoiles, armoiries et proportions exactes. Les 2,4 Mo sont chargés en un seul module
+mis en cache : l'app s'ouvre ensuite instantanément.
 
 ## Lancer le projet
 
