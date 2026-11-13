@@ -27,7 +27,7 @@ export const PROVIDERS: {
     label: "Google Gemini",
     free: true,
     keyUrl: "https://aistudio.google.com/apikey",
-    model: "gemini-2.5-flash",
+    model: "gemini-3-flash-preview",
     hint: "Clé gratuite, sans carte bancaire (compte Google).",
   },
   {
@@ -116,6 +116,10 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
         lastError = "Clé expirée : crée une nouvelle clé sur aistudio.google.com/apikey.";
       } else if (/api key not allowed|permission|not authorized|denied/.test(lower)) {
         lastError = "Clé sans autorisation pour ce service : dans Google AI Studio, autorise l'API Generative Language pour ce projet.";
+      } else if (/unexpected model name format/.test(lower)) {
+        lastError = "Nom de modèle mal écrit : mets simplement gemini-3-flash-preview dans le champ Modèle.";
+      } else if (/no longer available/.test(lower)) {
+        lastError = "Ce modèle est fermé aux nouvelles clés : mets gemini-3-flash-preview dans le champ Modèle.";
       } else if (/not found|is not supported|unsupported model/.test(lower)) {
         lastError = "Modèle introuvable pour cette clé : mets gemini-2.5-flash dans le champ Modèle.";
       } else if (/quota|resource_exhausted/.test(lower)) {
@@ -180,8 +184,8 @@ export async function askModel(
 
   if (cfg.provider === "gemini") {
     // Modèles essayés dans l'ordre : si l'un n'existe plus, on bascule sur le suivant.
-    const wanted = (cfg.model || "gemini-2.5-flash").trim();
-    const models = [wanted, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"].filter(
+    const wanted = cleanModel(cfg.model) || "gemini-3-flash-preview";
+    const models = [wanted, "gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash"].filter(
       (m, i, a) => m && a.indexOf(m) === i,
     );
     // 503/500 = serveur surchargé : on réessaie deux fois avec une pause.
@@ -189,22 +193,33 @@ export async function askModel(
       for (const model of models) {
         const out = await geminiOnce(model, apiKey, sys, turns);
         if (out) return out;
-        if (lastError && /surchargé|interne|n'a pas répondu/.test(lastError)) break; // inutile d'essayer un autre modèle
-        if (lastError && /Clé refusée|introuvable|Quota/.test(lastError)) return null; // erreur définitive
+        // Erreur définitive : clé refusée, quota, réseau bloqué → inutile d'insister.
+        if (lastError && /Clé invalide|expirée|sans autorisation|Quota|Aucune réponse|Impossible de joindre/.test(lastError)) return null;
+        // Sinon (modèle indisponible, surchargé, format inattendu) : on essaie le suivant.
       }
       if (!lastError || !/surchargé|interne|n'a pas répondu/.test(lastError)) return null;
-      if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
     }
     return null;
   }
   return await openAiCompatible(cfg.provider, apiKey, cfg.model, sys, turns);
 }
 
+/** Nettoie un nom de modèle : « models/gemini-2.5-flash », « Gemini 2.5 Flash » → « gemini-2.5-flash ». */
+export function cleanModel(raw: string): string {
+  return (raw ?? "")
+    .trim()
+    .replace(/^models\//i, "")
+    .replace(/[:\s].*$/, "")
+    .replace(/\s+/g, "-")
+    .toLowerCase();
+}
+
 async function geminiOnce(model: string, apiKey: string, sys: string, turns: Msg[]): Promise<string | null> {
   {
     const data = (await post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {},
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      { "x-goog-api-key": apiKey },
       {
         systemInstruction: { parts: [{ text: sys }] },
         contents: turns.map((t) => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.content }] })),
@@ -230,7 +245,7 @@ async function openAiCompatible(
     openai: "https://api.openai.com/v1/chat/completions",
   };
   const url = urls[provider] ?? urls.openai;
-  const model = cfgModel || PROVIDERS.find((p) => p.id === provider)?.model || "gpt-4o-mini";
+  const model = cleanModel(cfgModel) || PROVIDERS.find((p) => p.id === provider)?.model || "gpt-4o-mini";
   const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
   if (provider === "openrouter") {
     headers["HTTP-Referer"] = location.origin;
