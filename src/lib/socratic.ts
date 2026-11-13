@@ -202,11 +202,20 @@ Style : chaleureux, imagé (château, potions, runes) mais sobre, 3 à 6 phrases
 export type Memory = { tried: boolean; hinted: boolean };
 
 /** Décide de l'étape socratique d'après l'historique de la conversation. */
-export function stepOf(history: ChatMessage[], message: string, memory: Memory): "probe" | "hint" | "explain" {
+type Turn = { role: "user" | "assistant"; content: string };
+
+/** « oui », « a », « 3/4 », « je ne sais pas » : une réponse courte, pas une nouvelle question. */
+const shortReply = (m: string) => {
+  const t = m.trim();
+  return t.length <= 25 || /^(oui|non|ok|a|b|c|d)\b/i.test(t);
+};
+
+export function stepOf(history: Turn[], message: string, memory: Memory): "probe" | "hint" | "explain" {
   if (wantsAnswer(message) && (memory.hinted || memory.tried)) return "explain";
   if (wantsHelp(message)) return "hint";
   if (memory.hinted && looksLikeAttempt(message)) return "explain";
   if (memory.tried && !wantsHelp(message)) return "hint";
+  if (history.length >= 2 && shortReply(message)) return "explain";
   const lastAssistant = [...history].reverse().find((m) => m.role === "assistant");
   if (lastAssistant && history.length >= 2) {
     // une conversation est engagée : si l'élève écrit un essai, on explique
@@ -217,12 +226,21 @@ export function stepOf(history: ChatMessage[], message: string, memory: Memory):
 }
 
 /** Enveloppe une leçon (fiche + chapitre + exemples) en réponse directe de la professeure. */
-export function lessonAnswer(message: string, profile: Profile, lesson: string): string {
+export function lessonAnswer(message: string, profile: Profile, lesson: string, topic?: string): string {
   const kw = keywords(message).filter((w) => !["explique", "expliques", "comment", "pourquoi", "cest", "quoi"].includes(w))[0];
-  const intro = kw
-    ? `Bien sûr, ${profile.name} ! Parlons de **${kw}**. Voici la leçon, avec des exemples :`
-    : `Bien sûr, ${profile.name} ! Voici la leçon, avec des exemples :`;
-  return `${intro}\n\n${lesson}\n\nSi un point reste flou, demande-moi de le reprendre : je peux détailler étape par étape.`;
+  // Le sujet annoncé est celui de la fiche (« Le passé simple »), pas le verbe de la
+  // question (« conjuguer ») : sinon la leçon semble répondre à côté.
+  const subject = (topic ?? "").replace(/\s*\(.*\)\s*$/, "").replace(/^(reconna[^\s]*|comprendre|utiliser|ma[iî]triser)\s+/i, "").trim();
+  const intro = subject
+    ? `Bien sûr, ${profile.name} ! Voici la leçon sur **${subject}**, avec des exemples :`
+    : kw
+      ? `Bien sûr, ${profile.name} ! Parlons de **${kw}**. Voici la leçon, avec des exemples :`
+      : `Bien sûr, ${profile.name} ! Voici la leçon, avec des exemples :`;
+  // Le « à toi » (question de vérification) est déjà dans la leçon : on conclut sans le répéter.
+  const tail = /À toi\s*:/.test(lesson)
+    ? ""
+    : "\n\nSi un point reste flou, demande-moi de le reprendre : je peux détailler étape par étape.";
+  return `${intro}\n\n${lesson}${tail}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +248,8 @@ export function lessonAnswer(message: string, profile: Profile, lesson: string):
 // ---------------------------------------------------------------------------
 export const TUTOR_SYSTEM = `Tu es Dame Morgane, professeure de "L'Académie de Jana", une école magique pour une élève de 5e (12 ans). Tu réponds en français.
 TON RÔLE : aider vraiment l'élève. Tu DONNES la réponse et l'explication, tu ne laisses jamais l'élève sans solution.
+SUIVI DE LA CONVERSATION : tu lis tout l'échange. Si l'élève répond à la question que tu viens de poser (même par « A », « oui », « 3/4 »), tu commences par la corriger, puis tu continues sur le MÊME sujet. Tu ne changes jamais de sujet de toi-même. Si l'élève dit « je n'ai pas compris », tu reprends la même leçon autrement, plus simplement, avec un nouvel exemple.
+QUESTIONS DE VÉRIFICATION : tu en poses une à la fin, en proposant 3 réponses (A, B, C) dont une seule est juste, et tu indiques laquelle est la bonne. La question reste la même jusqu'à ce que l'élève y réponde.
 MÉTHODE POUR CHAQUE RÉPONSE :
 1. Une phrase de réponse directe à la question.
 2. L'explication pas à pas (2 à 4 étapes numérotées), dans les mots d'une élève de 12 ans.

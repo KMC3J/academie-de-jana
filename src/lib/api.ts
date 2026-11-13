@@ -78,6 +78,10 @@ type DB = {
   screen: Record<string, Record<string, Record<string, number>>>; // profileId → date → subject → s
   quizLog: Record<string, { score: number; total: number }[]>;
   books: Book[];
+  /** question de vérification en attente, par profil */
+  pendingQuestion: Record<string, PendingQuestion>;
+  /** dernière vraie question posée, par profil (pour reprendre le fil) */
+  lastTopic: Record<string, string>;
   parentPin: string;
   parentUnlocked: boolean;
 };
@@ -97,6 +101,8 @@ function seed(): DB {
     screen: {},
     quizLog: {},
     books: structuredClone(LIBRARY_BOOKS),
+    pendingQuestion: {},
+    lastTopic: {},
     parentPin: "1234",
     parentUnlocked: false,
   };
@@ -407,7 +413,13 @@ function submitQuiz(quizId: string, answers: string[]): QuizResult {
 }
 
 /** Le cours complet sur un sujet : fiche(s) + chapitre + explications du quiz. */
-function lessonFor(message: string, subjectId: string | null): string | null {
+type LessonHit = {
+  text: string;
+  question: { q: string; options: string[]; answer: string; why: string } | null;
+  topic: string;
+};
+
+function lessonFor(message: string, subjectId: string | null): LessonHit | null {
   const kws = normalizeText(message).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3 && !FR_STOP.has(w));
   if (kws.length === 0) return null;
   const stem = (w: string) => w.replace(/(aux|als|es|s|x)$/, "");
@@ -465,9 +477,20 @@ function lessonFor(message: string, subjectId: string | null): string | null {
     );
   }
 
-  const exo = questions[0];
+  const exo = questions[0] ?? null;
   const subj = bestSheet ? subjects().find((x) => x.id === bestSheet!.sh.subject_id) : bestChapter?.s;
-  return `${parts.join("\n\n")}${exo ? `\n\n**À toi :** « ${exo.q.replace(/\s*\?$/, "")} ? » — réponds, je corrige.` : ""}${subj ? `\n\n(Fiche de la Bibliothèque : ${subj.magic_name}.)` : ""}`;
+  // La question de vérification est écrite ici (format « À toi : … ») pour que la
+  // réponse de Jana soit corrigée au message suivant.
+  const choices = exo
+    ? [...new Set([exo.answer, ...(exo.options ?? []).filter((o) => o !== exo.answer)])].slice(0, 3)
+    : [];
+  const check = exo
+    ? `\n\n**À toi :** « ${exo.q.replace(/\s*\?$/, "")} ? » — réponds (A, B ou C), je corrige.\n` +
+      `${choices.map((o, i) => `${"ABC"[i]}. ${o}`).join(" · ")}`
+    : "";
+  const text = `${parts.join("\n\n")}${subj ? `\n\n(Fiche de la Bibliothèque : ${subj.magic_name}.)` : ""}${check}`;
+  const topic = bestSheet?.sh.title ?? bestChapter?.c.title ?? "";
+  return { text, question: exo, topic };
 }
 
 const FR_STOP = new Set([
@@ -489,6 +512,106 @@ function normalizeText(s: string): string {
 //     fiches, des chapitres et des questions, avec un exemple résolu.
 // ---------------------------------------------------------------------------
 const TEACHER_SYSTEM = TUTOR_SYSTEM;
+
+// ---------------------------------------------------------------------------
+// Questions de vérification : on retient la question posée (et ses réponses)
+// pour pouvoir corriger la réponse de Jana au message suivant.
+// ---------------------------------------------------------------------------
+type PendingQuestion = { q: string; options: string[]; answer: string; why: string };
+
+/** Lit la question de vérification posée dans la dernière réponse de Dame Morgane. */
+function pendingQuestion(history: ChatMessage[]): PendingQuestion | null {
+  const last = [...history].reverse().find((m) => m.role === "assistant");
+  if (!last) return null;
+  // Formats acceptés : « À toi : « question ? » — réponds, je corrige. »
+  //                    ou une phrase terminée par « ? » en fin de réponse.
+  // Les guillemets français se répètent : « À toi : « … ? » ». On isole donc la
+  // partie entre « À toi : » et « — réponds ».
+  // La question est celle qui contient « ___ » ou se termine par « ? », pas les
+  // guillemets internes d'un exemple (« « Il ___ un trésor. » »).
+  const afterToi = last.content.slice(last.content.lastIndexOf("À toi"));
+  const inner = [...afterToi.matchAll(/«\s*([^»]+?)\s*»/g)].map((x) => x[1]);
+  const q = inner.length > 0 ? inner.sort((a, b) => b.length - a.length)[0] : null;
+  if (!q) return null;
+  // La question peut finir par « » ? » : on retire les guillemets et le point d'interrogation.
+  const clean = q.replace(/[«»"]/g, "").replace(/\s*\?\s*$/, "").trim();
+  if (clean.length < 8) return null;
+
+  // Les réponses proposées suivent la question sur la ligne « A. … · B. … ».
+  const listed = [...last.content.matchAll(/A\.\s*([^·\n]+?)\s*·\s*B\.\s*([^·\n]+?)\s*·\s*C\.\s*([^·\n]+?)(?:\s*·\s*D\.\s*([^·\n]+?))?\s*(?:\n|$)/g)].pop();
+  const shown = listed ? [listed[1], listed[2], listed[3], listed[4]].filter(Boolean).map((o) => o.trim()) : [];
+
+  // On retrouve la question dans la banque pour connaître la bonne réponse.
+  // Comparaison tolérante : « Il ___ un trésor » vs « « Il ___ un trésor. » ».
+  const words = (t: string) => normalizeText(t).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+  const needle = words(clean);
+  const close = (other: string) => {
+    const ow = words(other.replace(/\s*\?\s*$/, ""));
+    if (ow.length === 0) return false;
+    // Les mots rares de la question (« trésor ») comptent plus que « il », « un ».
+    const common = needle.filter((w) => ow.includes(w) && w.length > 3).length;
+    return common >= 1 || needle.filter((w) => ow.includes(w)).length / Math.max(ow.length, needle.length) >= 0.7;
+  };
+  for (const bank of Object.values(QUESTION_BANK)) {
+    for (const item of bank) {
+      if (close(item.q)) {
+        return {
+          q: item.q,
+          options: shown.length >= 2 ? shown : item.options,
+          answer: item.answer,
+          why: item.why,
+        };
+      }
+    }
+  }
+  if (shown.length >= 2) return { q, options: shown, answer: "", why: "" };
+  // Question posée par le modèle : réponses inconnues, on garde au moins la question.
+  return { q, options: [], answer: "", why: "" };
+}
+
+/** Réponse très courte : « oui », « non », « A », « 3/4 », « je ne sais pas ». */
+function isShortReply(m: string): boolean {
+  const t = m.trim();
+  return t.length <= 25 || /^(oui|non|ok)\b/i.test(t);
+}
+
+/** Les réponses proposées par la dernière question de vérification, si on les connaît. */
+function awaitingOptions(history: ChatMessage[]): string[] {
+  return pendingQuestion(history)?.options ?? [];
+}
+
+/** Rappelle au modèle les dernières questions de Jana, pour qu'il n'y réponde pas à côté. */
+function topicHint(message: string, history: ChatMessage[]): string {
+  const lastUser = [...history].reverse().find((m) => m.role === "user");
+  const lastBot = [...history].reverse().find((m) => m.role === "assistant");
+  const parts: string[] = [];
+  if (lastUser && normalizeText(lastUser.content) !== normalizeText(message)) {
+    parts.push(`Question précédente de Jana : « ${lastUser.content} ».`);
+  }
+  if (lastBot) parts.push(`Ta dernière réponse commençait par : « ${lastBot.content.slice(0, 120)}… ».`);
+  if (parts.length === 0) return "";
+  return `${parts.join(" ")}\nReste dans le même sujet : si Jana enchaîne sur sa question ou répond par « oui », « non » ou une lettre, corrige-la ou poursuis — ne change pas de sujet.`;
+}
+
+/** Associe la réponse de Jana (« A », « la 2e », ou le texte d'une réponse) à une option. */
+function matchOption(options: string[], message: string): string | null {
+  if (options.length === 0) return null;
+  const m = normalizeText(message).trim();
+  const letters = ["a", "b", "c", "d"];
+  const byLetter = letters.findIndex((l) => new RegExp(`(^|[^a-z])${l}([^a-z]|$)`).test(m));
+  if (byLetter >= 0 && byLetter < options.length) return options[byLetter];
+  const byNumber = m.match(/^\s*(\d)\s*$/);
+  if (byNumber) {
+    const i = Number(byNumber[1]) - 1;
+    if (i >= 0 && i < options.length) return options[i];
+  }
+  // Correspondance par mots : la réponse est valable si elle cite l'option.
+  for (const opt of options) {
+    const words = normalizeText(opt).split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+    if (words.length > 0 && words.every((w) => m.includes(w))) return opt;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Routeur
@@ -814,6 +937,8 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
     const subjectId = (b.subject_id as string | null) ?? null;
     // Pendant qu'une réponse s'écrit, on n'inclut pas le dernier échange :
     // sinon le message s'affiche deux fois (historique + bulle en cours).
+    // Question de vérification en attente : on la mémorise à part, car un message
+    // très court (« C ») ne doit pas la faire oublier.
     const all = db.chat[pid] ?? [];
     const previous = all.length > 0 && all[all.length - 1].role === "assistant" ? all : all.slice(0, -1);
     const subjectName = subjectId ? subjects().find((s) => s.id === subjectId)?.name ?? null : null;
@@ -822,15 +947,58 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
     const memory = { tried: said.length > 0, hinted: /indice/i.test(lastReply) };
     const mode = (b.mode as string) ?? getTeacherMode();
     const step = mode === "socratic" ? stepOf(previous, message, memory) : "explain";
-    const lesson = lessonFor(message, subjectId);
+    // Réponse courte (« oui », « B », « 3/4 ») : c'est une réaction au tour précédent,
+    // pas une nouvelle question — on ne repart pas chercher un autre sujet.
+    // La question posée dans la dernière réponse de Dame Morgane reste « en attente »
+    // jusqu'à ce que Jana écrive autre chose qu'une réponse courte.
+    const asked = pendingQuestion(previous);
+    const awaiting = asked ?? db.pendingQuestion[pid] ?? null;
+    const answered = awaiting ? matchOption(awaiting.options, message) : null;
+    // Une réponse courte ou une lettre ne compte comme réaction que si une question
+    // était réellement en attente ; sinon c'est une vraie question (« c'est quoi… ? »).
+    // On considère que Jana poursuit la conversation si une question était en attente
+    // et qu'elle ne pose pas elle-même une nouvelle question (pas de « ? »).
+    const newQuestion = message.includes("?");
+    const replying = !!answered || (!!awaiting && !newQuestion);
+    const lesson = replying ? null : lessonFor(message, subjectId);
+    // On retient la dernière leçon pour savoir reprendre le fil quand Jana répond
+    // « je n'ai pas compris » (sans quoi la question suivante partait dans le vide).
+    const lastTopic =
+      db.lastTopic[pid] ??
+      [...previous].reverse().find((m) => m.role === "user" && !isShortReply(m.content))?.content ??
+      "";
+    const sameTopic = /pas compris|comprends pas|compris|encore|perdu|bloque/i.test(message) && lastTopic
+      ? lessonFor(lastTopic, subjectId)
+      : null;
     const local =
-      mode === "socratic" && step === "probe"
+      sameTopic
+        ? `${lessonAnswer(lastTopic, p, sameTopic.text, sameTopic.topic)}\n\nReprenons plus doucement, étape par étape.`
+      : mode === "socratic" && step === "probe"
         ? probeQuestion(message, p)
         : mode === "socratic" && step === "hint"
           ? giveHint(message, subjectId, subjects(), db.sheets, QUESTION_BANK)
           : lesson
-            ? lessonAnswer(message, p, lesson)
-            : fullExplanation(message, subjectId, subjects(), db.sheets, p, QUESTION_BANK);
+            ? lessonAnswer(message, p, lesson.text, lesson.topic)
+            : replying
+              ? "Je te suis, Jana ! Dis-moi ce qui bloque exactement (le mot, le calcul ou l'étape) et je reprends ce point de la leçon, pas à pas."
+              : fullExplanation(message, subjectId, subjects(), db.sheets, p, QUESTION_BANK);
+
+    // Question de vérification : elle est mémorisée pour pouvoir CORRIGER la réponse
+    // de Jana au tour suivant (avant, on ne savait pas à quoi elle répondait).
+    let local_verdict: string | null = null;
+    if (awaiting && answered && !awaiting.answer) {
+      // La bonne réponse n'est pas connue (question posée par le modèle) :
+      // on ne juge pas au hasard, on reprend l'explication du cours.
+      local_verdict = null;
+    } else if (awaiting && answered) {
+      const verdict =
+        answered === awaiting.answer
+          ? `✅ **Bien joué !** « ${awaiting.q.replace(/\s*\?$/, "")} » → **${awaiting.answer}**.`
+          : `Presque ! « ${awaiting.q.replace(/\s*\?$/, "")} » → la bonne réponse est **${awaiting.answer}**.`;
+      const why = awaiting.why ? ` ${awaiting.why}` : "";
+      local_verdict = `${verdict}${why}`;
+    }
+
     // Le message est enregistré tout de suite : l'historique reste propre même si
     // l'appel au modèle échoue ou si l'utilisateur rafraîchit la page.
     const chat = db.chat[pid] ?? [];
@@ -838,8 +1006,27 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
     db.chat[pid] = chat;
     save();
 
-    const system = subjectName ? `${TEACHER_SYSTEM}\nMatière en cours : ${subjectName}.` : TEACHER_SYSTEM;
-    const reply = (await askModel(system, message, p, previous)) ?? local;
+    const system = [
+      TEACHER_SYSTEM,
+      subjectName ? `Matière en cours : ${subjectName}.` : "",
+      topicHint(message, previous),
+      "Quand tu poses une question de vérification, propose 3 réponses possibles (A, B, C) et précise laquelle est la bonne : Jana répondra par une lettre.",
+      awaiting
+        ? `Tu viens de poser cette question : « ${awaiting.q} ». Réponses proposées : ${awaiting.options.join(" / ")}. La bonne réponse est : ${awaiting.answer}. Commence ta réponse par la correction de ce que Jana vient d'écrire.`
+        : "",
+    ].filter(Boolean).join("\n");
+    const modelReply = await askModel(system, message, p, previous);
+    if (lesson && !replying) db.lastTopic[pid] = message;
+    const reply =
+      modelReply ??
+      (local_verdict && awaiting
+        ? `${local_verdict}${/Je te suis, Jana/.test(local) ? "" : `\n\n${local}`}`
+        : local);
+    // Si Jana pose une nouvelle question ou change de sujet, l'ancienne question est close.
+    if (newQuestion || !awaiting) delete db.pendingQuestion[pid];
+    const nextAsked = pendingQuestion([{ id: "", role: "assistant", content: reply, created_at: "" }]);
+    if (nextAsked) db.pendingQuestion[pid] = nextAsked;
+    else delete db.pendingQuestion[pid];
     const list = db.chat[pid] ?? [];
     list.push({ id: uid(), role: "assistant", content: reply, created_at: new Date().toISOString() });
     db.chat[pid] = list;
