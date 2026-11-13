@@ -79,22 +79,42 @@ export function isAiReady(): boolean {
 
 type Msg = { role: "user" | "assistant"; content: string };
 
-async function post(url: string, headers: Record<string, string>, body: unknown): Promise<unknown | null> {
+async function post(url: string, headers: Record<string, string>, body: unknown, timeoutMs = 20000): Promise<unknown | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body) });
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
     if (!res.ok) {
       const detail = (await res.text().catch(() => "")).slice(0, 300);
       console.warn("[Dame Morgane] appel IA refusé :", res.status, detail);
-      lastError = res.status === 400 || res.status === 403 ? "Clé refusée par le fournisseur (vérifie la clé et le modèle)."
-        : res.status === 404 ? "Modèle introuvable : change le nom du modèle (ex. gemini-2.0-flash)."
-        : res.status === 429 ? "Quota gratuit atteint : réessaie dans une minute."
-        : `Erreur ${res.status} du fournisseur.`;
+      const msgs: Record<number, string> = {
+        400: "Clé refusée ou requête invalide : vérifie la clé et le nom du modèle.",
+        401: "Clé refusée : elle est peut-être mal copiée ou supprimée.",
+        403: "Accès refusé : la clé n'a pas le droit d'utiliser ce modèle.",
+        404: "Modèle introuvable : change le nom du modèle (ex. gemini-2.5-flash).",
+        429: "Quota gratuit atteint : réessaie dans une minute.",
+        500: "Le serveur de Google a eu un problème interne : réessaie dans quelques secondes.",
+        503: "Google est surchargé (503) : réessaie dans quelques secondes, ce n'est pas ta clé.",
+        504: "Google n'a pas répondu à temps : réessaie dans quelques secondes.",
+      };
+      lastError = msgs[res.status] ?? `Erreur ${res.status} du fournisseur.`;
       return null;
     }
     return await res.json();
   } catch (e) {
+    const aborted = (e as { name?: string })?.name === "AbortError";
+    lastError = aborted
+      ? "Aucune réponse après 20 s : la connexion à Gemini est bloquée (pare-feu, antivirus ou réseau)."
+      : "Impossible de joindre le fournisseur : vérifie la connexion Internet.";
     console.warn("[Dame Morgane] réseau indisponible :", e);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -106,10 +126,18 @@ export let lastError: string | null = null;
 export async function testAi(): Promise<{ ok: boolean; message: string }> {
   const cfg = getAiConfig();
   if (!cfg.apiKey.trim()) return { ok: false, message: "Aucune clé enregistrée." };
-  const before = lastError;
-  const reply = await askModel("Réponds en un seul mot.", "Bonjour", { name: "Jana" } as Profile, []);
-  if (reply) return { ok: true, message: `Ça marche ! Gemini a répondu : « ${reply.slice(0, 40)} »` };
-  return { ok: false, message: lastError && lastError !== before ? lastError : "Le fournisseur n'a pas répondu. Vérifie la clé et la connexion." };
+  lastError = null;
+  // Course contre la montre : le test rend toujours la main, même si le réseau bloque.
+  const limit = new Promise<null>((resolve) => setTimeout(() => resolve(null), 25000));
+  const reply = await Promise.race([
+    askModel("Réponds en un seul mot.", "Bonjour", { name: "Jana" } as Profile, []),
+    limit,
+  ]);
+  if (reply) return { ok: true, message: `Ça marche ! ${cfg.provider === "gemini" ? "Gemini" : cfg.provider} a répondu : « ${reply.slice(0, 60)} »` };
+  return {
+    ok: false,
+    message: lastError ?? "Aucune réponse du fournisseur (25 s). Vérifie la clé, le nom du modèle et la connexion Internet.",
+  };
 }
 
 export async function askModel(
@@ -134,9 +162,16 @@ export async function askModel(
     const models = [wanted, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"].filter(
       (m, i, a) => m && a.indexOf(m) === i,
     );
-    for (const model of models) {
-      const out = await geminiOnce(model, apiKey, sys, turns);
-      if (out) return out;
+    // 503/500 = serveur surchargé : on réessaie deux fois avec une pause.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      for (const model of models) {
+        const out = await geminiOnce(model, apiKey, sys, turns);
+        if (out) return out;
+        if (lastError && /surchargé|interne|n'a pas répondu/.test(lastError)) break; // inutile d'essayer un autre modèle
+        if (lastError && /Clé refusée|introuvable|Quota/.test(lastError)) return null; // erreur définitive
+      }
+      if (!lastError || !/surchargé|interne|n'a pas répondu/.test(lastError)) return null;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
     }
     return null;
   }

@@ -32,6 +32,7 @@ export default function Professeur() {
   const [ai, setAi] = useState(getAiConfig);
   const [showKey, setShowKey] = useState(false);
   const [aiTest, setAiTest] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
   const [modelDraft, setModelDraft] = useState(ai.model);
   const [mode, setMode] = useState<TeacherMode>(getTeacherMode);
@@ -172,17 +173,26 @@ export default function Professeur() {
                   size="sm"
                   data-testid="teacher-ai-test"
                   variant="outline"
+                  disabled={testing}
                   onClick={async () => {
+                    if (testing) return;
+                    setTesting(true);
                     const next = { ...ai, apiKey: keyDraft.trim(), model: modelDraft.trim() || providerDef.model };
                     setAi(next);
                     setAiConfig(next);
-                    setAiTest("Test en cours…");
-                    const res = await testAi();
-                    setAiTest(res.message);
-                    toast[res.ok ? "success" : "error"](res.ok ? "IA connectée !" : "La clé n'a pas fonctionné");
+                    setAiTest("Test en cours… (25 s maximum)");
+                    try {
+                      const res = await testAi();
+                      setAiTest(res.message);
+                      toast[res.ok ? "success" : "error"](res.ok ? "IA connectée !" : "La clé n'a pas fonctionné");
+                    } catch (e) {
+                      setAiTest(`Le test a échoué : ${String(e).slice(0, 120)}`);
+                    } finally {
+                      setTesting(false);
+                    }
                   }}
                 >
-                  Tester la clé
+                  {testing ? "Test en cours…" : "Tester la clé"}
                 </Button>
                 <Button
                   size="sm"
