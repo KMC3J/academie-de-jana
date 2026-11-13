@@ -91,7 +91,14 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
     });
     if (!res.ok) {
       const detail = (await res.text().catch(() => "")).slice(0, 300);
+      lastDetail = `HTTP ${res.status} · ${detail.replace(/\s+/g, " ").slice(0, 220)}`;
       console.warn("[Dame Morgane] appel IA refusé :", res.status, detail);
+      // Le message renvoyé par Google est plus précis que le code : on le garde.
+      let apiMsg = "";
+      try {
+        apiMsg = (JSON.parse(detail) as { error?: { message?: string; status?: string } }).error?.message ?? "";
+      } catch { /* pas de JSON : on garde le texte brut */ }
+      const lower = `${apiMsg} ${detail}`.toLowerCase();
       const msgs: Record<number, string> = {
         400: "Clé refusée ou requête invalide : vérifie la clé et le nom du modèle.",
         401: "Clé refusée : elle est peut-être mal copiée ou supprimée.",
@@ -102,7 +109,20 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
         503: "Google est surchargé (503) : réessaie dans quelques secondes, ce n'est pas ta clé.",
         504: "Google n'a pas répondu à temps : réessaie dans quelques secondes.",
       };
-      lastError = msgs[res.status] ?? `Erreur ${res.status} du fournisseur.`;
+      // Diagnostic précis d'après le texte de l'API (plus fiable que le code seul).
+      if (/api key not valid|api_key_invalid|invalid api key/.test(lower)) {
+        lastError = "Clé invalide : Google ne reconnaît pas cette clé. Vérifie qu'elle est complète (elle commence par AIza…) et qu'elle vient bien de aistudio.google.com/apikey.";
+      } else if (/api key expired/.test(lower)) {
+        lastError = "Clé expirée : crée une nouvelle clé sur aistudio.google.com/apikey.";
+      } else if (/api key not allowed|permission|not authorized|denied/.test(lower)) {
+        lastError = "Clé sans autorisation pour ce service : dans Google AI Studio, autorise l'API Generative Language pour ce projet.";
+      } else if (/not found|is not supported|unsupported model/.test(lower)) {
+        lastError = "Modèle introuvable pour cette clé : mets gemini-2.5-flash dans le champ Modèle.";
+      } else if (/quota|resource_exhausted/.test(lower)) {
+        lastError = "Quota gratuit atteint : réessaie dans une minute (ou demain si le quota du jour est épuisé).";
+      } else {
+        lastError = apiMsg ? `${msgs[res.status] ?? `Erreur ${res.status}.`} Détail Google : ${apiMsg.slice(0, 160)}` : msgs[res.status] ?? `Erreur ${res.status} du fournisseur.`;
+      }
       return null;
     }
     return await res.json();
@@ -121,6 +141,8 @@ async function post(url: string, headers: Record<string, string>, body: unknown,
 /** Envoie la question au modèle configuré. Renvoie null si aucune clé ou en cas d'échec. */
 /** Dernière erreur d'appel IA, pour l'afficher dans l'app. */
 export let lastError: string | null = null;
+/** Réponse brute du fournisseur lors du dernier appel, pour le diagnostic. */
+export let lastDetail: string | null = null;
 
 /** Teste la clé en posant une question minuscule. Renvoie un message prêt à afficher. */
 export async function testAi(): Promise<{ ok: boolean; message: string }> {
@@ -136,7 +158,7 @@ export async function testAi(): Promise<{ ok: boolean; message: string }> {
   if (reply) return { ok: true, message: `Ça marche ! ${cfg.provider === "gemini" ? "Gemini" : cfg.provider} a répondu : « ${reply.slice(0, 60)} »` };
   return {
     ok: false,
-    message: lastError ?? "Aucune réponse du fournisseur (25 s). Vérifie la clé, le nom du modèle et la connexion Internet.",
+    message: `${lastError ?? "Aucune réponse du fournisseur (25 s)."}${lastDetail ? ` — réponse de Google : ${lastDetail}` : ""}`,
   };
 }
 
