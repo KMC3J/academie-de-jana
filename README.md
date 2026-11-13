@@ -4,6 +4,14 @@ Clone fonctionnel de l'application **« L'Académie de Jana — école magique p
 (école de magie pour une élève de 5e), reconstruit à partir du code source de l'application
 d'origine, **sans serveur** : toutes les données vivent dans le `localStorage` du navigateur.
 
+## Drapeaux
+
+Les 177 drapeaux sont dessinés en SVG directement dans l'app (aucune image, aucun
+site externe). `scripts/build-flags-light-v2.mjs` les allège : tracés arrondis,
+points inutiles retirés, armoiries simplifiées → **935 Ko** au lieu de 2,4 Mo,
+pour un rendu identique à l'écran. Pour régénérer : `node scripts/build-flags.mjs`
+puis `node scripts/build-flags-light-v2.mjs`.
+
 ## Lancer le projet
 
 ```bash
