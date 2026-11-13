@@ -24,6 +24,8 @@ import {
 import { fullExplanation, giveHint, lessonAnswer, probeQuestion, stepOf, TUTOR_SYSTEM } from "@/lib/socratic";
 import { askModel, getTeacherMode } from "@/lib/provider";
 import { LIBRARY_BOOKS, type Book } from "@/data/library";
+import { conjugationAnswer, mathAnswer, spanishAnswer, translationAnswer } from "@/lib/knowledge";
+import { getAiConfig } from "@/lib/provider";
 import type {
   Avatar,
   BadgeDef,
@@ -420,6 +422,9 @@ type LessonHit = {
 };
 
 function lessonFor(message: string, subjectId: string | null): LessonHit | null {
+  // « conjugue le verbe coudre » n'est pas un sujet de fiche : on laisse la main
+  // à la conjugaison exacte (sinon la réponse part sur le passé simple).
+  if (/\b(conjugu|conjugaison|tradui|dit-on)\b|en anglais|en espagnol|en allemand/.test(normalizeText(message))) return null;
   const kws = normalizeText(message).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 3 && !FR_STOP.has(w));
   if (kws.length === 0) return null;
   const stem = (w: string) => w.replace(/(aux|als|es|s|x)$/, "");
@@ -959,8 +964,20 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
     // On considère que Jana poursuit la conversation si une question était en attente
     // et qu'elle ne pose pas elle-même une nouvelle question (pas de « ? »).
     const newQuestion = message.includes("?");
-    const replying = !!answered || (!!awaiting && !newQuestion);
-    const lesson = replying ? null : lessonFor(message, subjectId);
+    const precise = /conjugu|conjugaison|calcule|combien|tradui|dit-on|en anglais|en espagnol|en allemand/i.test(message);
+    const replying = !precise && (!!answered || (!!awaiting && !newQuestion));
+    // Réponses calculées (conjugaison, calcul posé, vocabulaire) : elles sont exactes,
+    // on les préfère à une fiche approximative.
+    // Avec une clé IA, c'est le modèle qui répond : c'est une vraie IA, elle ne se
+    // limite pas aux fiches. Les réponses calculées ne servent que de secours.
+    const hasAi = getAiConfig().apiKey.trim().length > 0;
+    const exact = hasAi
+      ? null
+      : translationAnswer(message) ??
+        conjugationAnswer(message) ??
+        mathAnswer(message) ??
+        spanishAnswer(message);
+    const lesson = replying || exact ? null : lessonFor(message, subjectId);
     // On retient la dernière leçon pour savoir reprendre le fil quand Jana répond
     // « je n'ai pas compris » (sans quoi la question suivante partait dans le vide).
     const lastTopic =
@@ -971,7 +988,9 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
       ? lessonFor(lastTopic, subjectId)
       : null;
     const local =
-      sameTopic
+      exact
+        ? exact
+      : sameTopic
         ? `${lessonAnswer(lastTopic, p, sameTopic.text, sameTopic.topic)}\n\nReprenons plus doucement, étape par étape.`
       : mode === "socratic" && step === "probe"
         ? probeQuestion(message, p)

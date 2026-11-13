@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { BrainCircuit, Eraser, KeyRound, Loader2, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { apiDelete, apiGet, apiStream } from "@/lib/api";
-import { getAiConfig, getTeacherMode, PROVIDERS, setAiConfig, setTeacherMode, type ProviderId, type TeacherMode } from "@/lib/provider";
+import { getAiConfig, getTeacherMode, PROVIDERS, setAiConfig, setTeacherMode, testAi, type ProviderId, type TeacherMode } from "@/lib/provider";
 import { IMAGES, useProfile, useProfileId, useSubjects } from "@/lib/academy";
 import { setActivity } from "@/components/Shell";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ export default function Professeur() {
   const [pending, setPending] = useState<{ user: string; reply: string } | null>(null);
   const [ai, setAi] = useState(getAiConfig);
   const [showKey, setShowKey] = useState(false);
+  const [aiTest, setAiTest] = useState<string | null>(null);
   const [keyDraft, setKeyDraft] = useState("");
   const [modelDraft, setModelDraft] = useState(ai.model);
   const [mode, setMode] = useState<TeacherMode>(getTeacherMode);
@@ -166,7 +167,23 @@ export default function Professeur() {
               >
                 Obtenir une clé gratuite {providerDef.label} →
               </a>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  data-testid="teacher-ai-test"
+                  variant="outline"
+                  onClick={async () => {
+                    const next = { ...ai, apiKey: keyDraft.trim(), model: modelDraft.trim() || providerDef.model };
+                    setAi(next);
+                    setAiConfig(next);
+                    setAiTest("Test en cours…");
+                    const res = await testAi();
+                    setAiTest(res.message);
+                    toast[res.ok ? "success" : "error"](res.ok ? "IA connectée !" : "La clé n'a pas fonctionné");
+                  }}
+                >
+                  Tester la clé
+                </Button>
                 <Button
                   size="sm"
                   data-testid="teacher-ai-save"
@@ -182,6 +199,9 @@ export default function Professeur() {
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setShowKey(false)}>Annuler</Button>
               </div>
+              {aiTest && (
+                <p className="text-[11px] leading-snug text-[#FDE68A]" data-testid="teacher-ai-testresult">{aiTest}</p>
+              )}
               <p className="text-[11px] leading-snug text-[#7C77A0]">
                 La clé reste dans ce navigateur et n'est envoyée qu'au fournisseur choisi.
               </p>
