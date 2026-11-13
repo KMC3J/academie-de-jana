@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, RotateCcw, Sparkles, XCircle } from "lucide-react";
 import WorldMap from "@/components/WorldMap";
+import Flag from "@/components/Flag";
 import rawCountries from "@/data/countries.json";
 
 type Country = {
@@ -68,7 +69,7 @@ const langLabel = (l: string[]) => (l.length ? l.slice(0, 3).map((x) => LANGUAGE
 
 // --- Quiz ---------------------------------------------------------------
 
-type QuestionKind = "capital" | "currency" | "map";
+type QuestionKind = "capital" | "currency" | "map" | "flag";
 
 type Question = {
   kind: QuestionKind;
@@ -114,8 +115,8 @@ function buildQuiz(pool: Country[], count: number): Question[] {
   for (let i = 0; i < count; i++) {
     const country = usable[Math.floor(Math.random() * usable.length)];
     const kind: QuestionKind = country.currency
-      ? (["capital", "currency", "map"] as QuestionKind[])[i % 3]
-      : (["capital", "map"] as QuestionKind[])[i % 2];
+      ? (["capital", "currency", "map", "flag"] as QuestionKind[])[i % 4]
+      : (["capital", "map", "flag"] as QuestionKind[])[i % 3];
 
     if (kind === "capital") {
       const others = shuffle(usable.filter((c) => c.capital !== country.capital)).slice(0, 3).map((c) => c.capital!);
@@ -139,6 +140,15 @@ function buildQuiz(pool: Country[], count: number): Question[] {
         prompt: `Quelle monnaie utilise-t-on ${currencyPhrase(country.name)} ?`,
         choices: shuffle([answerLabel, ...others]),
         answer: answerLabel,
+      });
+    } else if (kind === "flag") {
+      const others = shuffle(usable.filter((c) => c.id !== country.id)).slice(0, 3).map((c) => c.name);
+      qs.push({
+        kind,
+        country,
+        prompt: "À quel pays appartient ce drapeau ?",
+        choices: shuffle([country.name, ...others]),
+        answer: country.name,
       });
     } else {
       const others = shuffle(usable.filter((c) => c.id !== country.id)).slice(0, 3);
@@ -235,7 +245,7 @@ export default function GlobePage() {
       <p className="text-sm font-medium tracking-wide text-[#FDE68A] uppercase">La carte du monde</p>
       <h1 className="mt-1 font-heading text-4xl font-bold text-white">Les pays du monde</h1>
       <p className="mt-2 max-w-2xl text-[#A7A1C8]">
-        Explore la carte, ouvre la fiche d'un pays (capitale, monnaie, histoire) et lance le quiz pour tester ta mémoire.
+        Explore la carte, ouvre la fiche d'un pays (drapeau, capitale, monnaie, histoire) et lance le quiz pour tester ta mémoire.
       </p>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -252,7 +262,8 @@ export default function GlobePage() {
             <p className="mt-2 text-sm text-[#FDE68A]">À toi : clique sur {question.country.name}.</p>
           )}
           {hoveredCountry && (
-            <p className="mt-2 text-xs text-[#8B84B0]">
+            <p className="mt-2 flex items-center gap-2 text-xs text-[#8B84B0]">
+              <Flag code={hoveredCountry.id} name={hoveredCountry.name} className="h-4 w-6" />
               Survole : {hoveredCountry.name} — capitale {hoveredCountry.capital ?? "inconnue"}
             </p>
           )}
@@ -270,9 +281,12 @@ export default function GlobePage() {
             <p className="text-sm text-[#A7A1C8]">Choisis un pays sur la carte.</p>
           ) : (
             <>
-              <h2 className="font-heading text-3xl font-bold text-white" data-testid="country-name">
-                {selected.name}
-              </h2>
+              <div className="flex items-center gap-3">
+                <Flag code={selected.id} name={selected.name} className="h-8 w-12 shrink-0 shadow-lg" />
+                <h2 className="font-heading text-3xl font-bold text-white" data-testid="country-name">
+                  {selected.name}
+                </h2>
+              </div>
               <p className="text-xs text-[#9D95C2]">{selected.official}</p>
 
               <dl className="mt-4 space-y-2 text-sm">
@@ -309,7 +323,7 @@ export default function GlobePage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-heading text-2xl font-bold text-white">Quiz des pays</h2>
-            <p className="text-sm text-[#A7A1C8]">Capitales, monnaies et pays à trouver sur la carte.</p>
+            <p className="text-sm text-[#A7A1C8]">Capitales, monnaies, drapeaux et pays à trouver sur la carte.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-[#8B84B0]">Série :</span>
@@ -365,6 +379,16 @@ export default function GlobePage() {
               {question!.prompt}
             </p>
 
+            {question!.kind === "flag" && (
+              <div className="mt-4 flex justify-center" data-testid="quiz-flag">
+                <Flag
+                  code={question!.country.id}
+                  name={answered ? question!.country.name : "Drapeau mystère"}
+                  className="h-24 w-36 rounded-md shadow-xl sm:h-28 sm:w-44"
+                />
+              </div>
+            )}
+
             {question!.kind === "map" ? (
               <p className="mt-3 text-sm text-[#A7A1C8]">
                 Clique directement sur le point du pays, en haut de la page.
@@ -388,7 +412,13 @@ export default function GlobePage() {
                             : "border-[#7C5CFF33] bg-[#18142A] text-[#C9C3E6] hover:border-[#7C5CFF66]"
                       }`}
                     >
-                      {choice}
+                      <span className="flex items-center gap-2">
+                        {question!.kind === "flag" && (() => {
+                          const c = COUNTRIES.find((x) => x.name === choice);
+                          return c ? <Flag code={c.id} name={c.name} className="h-4 w-6 shrink-0" /> : null;
+                        })()}
+                        {choice}
+                      </span>
                       {answered && good && <CheckCircle2 className="size-4 text-[#7CF5A8]" />}
                       {answered && chosen && !good && <XCircle className="size-4 text-[#FF5F8D]" />}
                     </button>
@@ -399,7 +429,8 @@ export default function GlobePage() {
 
             {answered && (
               <div className="mt-4 flex flex-wrap items-center gap-3">
-                <p className={`text-sm ${isCorrect ? "text-[#7CF5A8]" : "text-[#FF9AB6]"}`}>
+                <p className={`flex items-center gap-2 text-sm ${isCorrect ? "text-[#7CF5A8]" : "text-[#FF9AB6]"}`}>
+                  <Flag code={question!.country.id} name={question!.country.name} className="h-4 w-6" />
                   {isCorrect ? "Bonne réponse !" : `La bonne réponse : ${question!.kind === "map" ? question!.country.name : question!.answer}`}
                 </p>
                 <button
@@ -454,8 +485,11 @@ export default function GlobePage() {
                   : "border-[#7C5CFF26] bg-[#18142A] text-[#C9C3E6] hover:border-[#7C5CFF66]"
               }`}
             >
-              <span className="block truncate">{c.name}</span>
-              <span className="block truncate text-[11px] text-[#8B84B0]">{c.capital ?? "—"}</span>
+              <span className="flex items-center gap-2">
+                <Flag code={c.id} name={c.name} className="h-4 w-6 shrink-0" />
+                <span className="truncate">{c.name}</span>
+              </span>
+              <span className="mt-0.5 block truncate pl-8 text-[11px] text-[#8B84B0]">{c.capital ?? "—"}</span>
             </button>
           ))}
         </div>
