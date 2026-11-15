@@ -41,12 +41,21 @@ export default function MesCours() {
   const pdfRef = useRef<HTMLInputElement>(null);
   const aiReady = getAiConfig().apiKey.trim().length > 0;
 
+  // On écrit TOUJOURS à partir de la dernière liste (ref), jamais de la copie
+  // capturée par le rendu : sinon, après l'ajout d'une photo, la mise à jour
+  // « cours lu » écrasait la liste avec un ancien état et le bouton disparaissait.
+  const photosRef = useRef<LessonPhoto[]>(photos);
   const persist = (next: LessonPhoto[]) => {
+    photosRef.current = next;
     setPhotos(next);
-    savePhotos(next);
+    try {
+      savePhotos(next);
+    } catch (e) {
+      setErrors((prev) => ({ ...prev, storage: String(e instanceof Error ? e.message : e) }));
+    }
   };
   const patch = (id: string, changes: Partial<LessonPhoto>) =>
-    persist(photos.map((p) => (p.id === id ? { ...p, ...changes } : p)));
+    persist(photosRef.current.map((p) => (p.id === id ? { ...p, ...changes } : p)));
 
   const createSheet = useMutation({
     mutationFn: (body: Omit<Sheet, "id">) => apiPost<Sheet>("/sheets", body),
@@ -91,7 +100,7 @@ export default function MesCours() {
           status: "à lire",
           doc: "pdf",
         };
-        persist([pdfDoc, ...photos]);
+        persist([pdfDoc, ...photosRef.current]);
         try {
           const { text, pages } = await pdfToText(file);
           if (!text.trim()) {
@@ -129,7 +138,7 @@ export default function MesCours() {
         sheet_id: null,
         status: "à lire",
       };
-      persist([base, ...photos]);
+      persist([base, ...photosRef.current]);
       try {
         const text = await transcribePhoto(image);
         const subj = guessSubject(text, fallbackSubject);
@@ -270,7 +279,7 @@ export default function MesCours() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => persist(photos.filter((x) => x.id !== p.id))}
+                onClick={() => persist(photosRef.current.filter((x) => x.id !== p.id))}
                 data-testid={`cours-delete-${p.id}`}
               >
                 <Trash2 />
