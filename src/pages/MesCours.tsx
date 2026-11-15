@@ -29,7 +29,14 @@ export default function MesCours() {
   const [photos, setPhotos] = useState<LessonPhoto[]>(() => loadPhotos());
   const [busy, setBusy] = useState<string | null>(null);
   const [subjectId, setSubjectId] = useState<string>("");
-  const [showCamera, setShowCamera] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const setErr = (id: string, text: string | null) =>
+    setErrors((e) => {
+      const next = { ...e };
+      if (text) next[id] = text;
+      else delete next[id];
+      return next;
+    });
   const fileRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const aiReady = getAiConfig().apiKey.trim().length > 0;
@@ -138,8 +145,11 @@ export default function MesCours() {
   }
 
   async function makeCard(photo: LessonPhoto) {
+    setErr(photo.id, null);
     if (!photo.text) {
-      toast.error("Le cours n'a pas encore été lu.");
+      const msg = "Le cours n'a pas encore été lu : attends la fin de la lecture.";
+      setErr(photo.id, msg);
+      toast.error(msg);
       return;
     }
     setBusy(photo.id);
@@ -155,7 +165,11 @@ export default function MesCours() {
       patch(photo.id, { sheet_id: sheet.id, title: map.title });
       toast.success("Carte mentale créée dans Fiches et cartes mentales !");
     } catch (e) {
-      toast.error("Carte mentale impossible : " + String(e instanceof Error ? e.message : e).slice(0, 120));
+      const text = String(e instanceof Error ? e.message : e).slice(0, 220);
+      // L'erreur reste affichée sous le cours : un toast disparaît trop vite
+      // pour qu'on sache pourquoi « rien ne se passe ».
+      setErr(photo.id, text);
+      toast.error("Carte mentale impossible : " + text.slice(0, 100));
     } finally {
       setBusy(null);
     }
@@ -270,6 +284,16 @@ export default function MesCours() {
                 </pre>
               </details>
             )}
+            {errors[p.id] && (
+              <p className="mt-3 rounded-xl border border-[#F87171]/40 bg-[#7F1D1D]/30 p-3 text-xs leading-relaxed text-[#FECACA]" data-testid={`cours-error-${p.id}`}>
+                {errors[p.id]}
+              </p>
+            )}
+            {busy === p.id && (
+              <p className="mt-3 text-xs text-[#C4B5FD]" data-testid={`cours-working-${p.id}`}>
+                Dame Morgane prépare la carte mentale… (jusqu'à 25 s)
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 size="sm"
@@ -277,7 +301,8 @@ export default function MesCours() {
                 onClick={() => makeCard(p)}
                 data-testid={`cours-mindmap-${p.id}`}
               >
-                {busy === p.id ? <Loader2 className="animate-spin" /> : <Network />} Créer la carte mentale
+                {busy === p.id ? <Loader2 className="animate-spin" /> : <Network />}{" "}
+                {p.sheet_id ? "Refaire la carte mentale" : "Créer la carte mentale"}
               </Button>
               {p.status === "erreur" && p.doc !== "pdf" && (
                 <Button size="sm" variant="outline" onClick={() => retry(p)} disabled={busy === p.id}>

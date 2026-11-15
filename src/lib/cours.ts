@@ -6,7 +6,7 @@
  * « Fiches & cartes mentales ». Si l'IA n'est pas disponible, on garde la photo
  * et on peut relancer l'analyse plus tard : rien n'est perdu.
  */
-import { readPhoto, lastError as lastAiError } from "@/lib/provider";
+import { askModel, getAiConfig, readPhoto, lastError as lastAiError } from "@/lib/provider";
 
 /** Un document ajouté : une photo du cahier, ou un PDF. */
 export type DocKind = "photo" | "pdf";
@@ -159,11 +159,26 @@ Règles : 3 à 6 branches ; 2 à 5 items par branche ; items de 1 à 6 mots ; au
 
 COURS :
 ${text.slice(0, 6000)}`;
-  const raw = await readPhotoText(consigne);
+  // La carte mentale est un travail de TEXTE : on passe par askModel (même chemin
+  // que Dame Morgane), pas par l'envoi d'image — sinon un fournisseur qui refuse
+  // les images bloque aussi la carte, et une image de 1 px fait perdre du temps.
+  const cfg = getAiConfig();
+  const raw = await askModel(SYSTEM_CARTE, consigne, { name: "Jana" } as never, []);
+  if (!raw) {
+    const why = lastAiError ?? "L'IA n'a pas répondu";
+    throw new Error(
+      cfg.apiKey.trim()
+        ? `L'IA n'a pas répondu : ${why}`
+        : "Aucune clé IA : la carte mentale a besoin de Gemini (Professeur magique → Cerveau de Dame Morgane).",
+    );
+  }
   return parseMindMap(raw);
 }
 
-/** Appel texte pur (sans image) pour la mise en carte mentale. */
+const SYSTEM_CARTE = `Tu es Dame Morgane, professeure de l'Académie de Jana. Tu construis des cartes mentales claires pour une élève de 5e.
+Tu réponds UNIQUEMENT par un JSON valide, sans texte autour, sans balises de code.`;
+
+/** Appel texte pur (sans image) — conservé pour les cas où une image est nécessaire. */
 async function readPhotoText(consigne: string): Promise<string> {
   // 1 px transparent : réutilise le même chemin d'appel que les photos.
   const blank =
