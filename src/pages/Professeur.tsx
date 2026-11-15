@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { BrainCircuit, Eraser, KeyRound, Loader2, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { apiDelete, apiGet, apiStream } from "@/lib/api";
+import { apiDelete, apiGet, apiStream, lastChatFallback } from "@/lib/api";
 import { getAiConfig, getTeacherMode, PROVIDERS, setAiConfig, setTeacherMode, testAi, type ProviderId, type TeacherMode } from "@/lib/provider";
 import { IMAGES, useProfile, useProfileId, useSubjects } from "@/lib/academy";
 import { setActivity } from "@/components/Shell";
@@ -37,6 +37,17 @@ export default function Professeur() {
   const [modelDraft, setModelDraft] = useState(ai.model);
   const [mode, setMode] = useState<TeacherMode>(getTeacherMode);
   const aiReady = ai.apiKey.trim().length > 0;
+  // null = pas encore testé · true = Gemini répond · false = clé refusée
+  const [aiOk, setAiOk] = useState<boolean | null>(null);
+  // Après chaque message, on vérifie si la réponse vient bien de l'IA.
+  useEffect(() => {
+    if (!aiReady) return;
+    const id = window.setInterval(() => {
+      if (lastChatFallback === null) return;
+      setAiOk(lastChatFallback.includes("Aucune clé") ? null : false);
+    }, 1200);
+    return () => window.clearInterval(id);
+  }, [aiReady]);
   const providerDef = PROVIDERS.find((p) => p.id === ai.provider) ?? PROVIDERS[0];
   const chooseMode = (m: TeacherMode) => { setMode(m); setTeacherMode(m); };
   const bottom = useRef<HTMLDivElement>(null);
@@ -120,7 +131,14 @@ export default function Professeur() {
           </p>
           <p className="mt-2 text-xs leading-relaxed" data-testid="teacher-ai-status">
             {aiReady ? (
-              <span className="text-[#6EE7B7]">IA connectée ({providerDef.label} · {ai.model}).</span>
+              aiOk === false ? (
+                <span className="text-[#FCA5A5]" data-testid="teacher-ai-broken">
+                  Clé refusée par {providerDef.label} : Dame Morgane répond avec les fiches.
+                  {lastChatFallback ? ` (${lastChatFallback.slice(0, 140)})` : ""} Clique sur « Tester la clé ».
+                </span>
+              ) : (
+                <span className="text-[#6EE7B7]">IA connectée ({providerDef.label} · {ai.model}).</span>
+              )
             ) : (
               <span className="text-[#FCA5A5]">Mode leçons : réponses préparées à partir des fiches. Ajoute une clé gratuite pour une vraie IA.</span>
             )}

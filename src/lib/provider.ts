@@ -177,7 +177,8 @@ export async function askModel(
   if (!apiKey) return null;
 
   const turns: Msg[] = [
-    ...history.slice(-6).map((m) => ({ role: m.role, content: m.content })),
+    // On garde tout l'échange en cours (une leçon peut faire 20 messages).
+    ...history.slice(-14).map((m) => ({ role: m.role, content: m.content })),
     { role: "user" as const, content: message },
   ];
   const sys = `${system}\nL'élève s'appelle ${profile.name}.`;
@@ -223,7 +224,7 @@ async function geminiOnce(model: string, apiKey: string, sys: string, turns: Msg
       {
         systemInstruction: { parts: [{ text: sys }] },
         contents: turns.map((t) => ({ role: t.role === "assistant" ? "model" : "user", parts: [{ text: t.content }] })),
-        generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2600 },
       },
     )) as { candidates?: { content?: { parts?: { text?: string }[] } }[] } | null;
     const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
@@ -254,7 +255,7 @@ async function openAiCompatible(
   const data = (await post(url, headers, {
     model,
     temperature: 0.7,
-    max_tokens: 800,
+    max_tokens: 2600,
     messages: [{ role: "system", content: sys }, ...turns],
   })) as { choices?: { message?: { content?: string } }[] } | null;
   const text = data?.choices?.[0]?.message?.content?.trim();

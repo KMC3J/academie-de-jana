@@ -22,10 +22,9 @@ import {
   defaultProfiles,
 } from "@/data/seed";
 import { fullExplanation, giveHint, lessonAnswer, probeQuestion, stepOf, TUTOR_SYSTEM } from "@/lib/socratic";
-import { askModel, getTeacherMode } from "@/lib/provider";
+import { askModel, getAiConfig, getTeacherMode, lastError as lastAiError } from "@/lib/provider";
 import { LIBRARY_BOOKS, type Book } from "@/data/library";
 import { conjugationAnswer, mathAnswer, spanishAnswer, translationAnswer } from "@/lib/knowledge";
-import { getAiConfig } from "@/lib/provider";
 import type {
   Avatar,
   BadgeDef,
@@ -517,6 +516,9 @@ function normalizeText(s: string): string {
 //     fiches, des chapitres et des questions, avec un exemple résolu.
 // ---------------------------------------------------------------------------
 const TEACHER_SYSTEM = TUTOR_SYSTEM;
+
+/** Pourquoi Dame Morgane n'a pas répondu avec l'IA au dernier message (null = elle a répondu). */
+export let lastChatFallback: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Questions de vérification : on retient la question posée (et ses réponses)
@@ -1035,6 +1037,9 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
         : "",
     ].filter(Boolean).join("\n");
     const modelReply = await askModel(system, message, p, previous);
+    // Diagnostic : sans réponse du modèle, on retombe sur la leçon locale. On garde
+    // une trace pour que le panneau « Cerveau de Dame Morgane » puisse l'expliquer.
+    lastChatFallback = modelReply ? null : hasAi ? (lastAiError ?? "Le modèle n'a pas répondu.") : "Aucune clé IA enregistrée : réponse préparée à partir des fiches.";
     if (lesson && !replying) db.lastTopic[pid] = message;
     const reply =
       modelReply ??
