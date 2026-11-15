@@ -3,7 +3,7 @@ import { NavLink, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
-  Camera, CalendarDays, Calculator, Castle, Clock, Globe2, GraduationCap, LogOut, Map, Menu, NotebookPen, Palette, ScrollText,
+  BookA, Camera, CalendarDays, Calculator, Castle, Clock, Globe2, GraduationCap, LogOut, Map, Menu, NotebookPen, Palette, ScrollText,
   Sparkles, Star, Gem, UserRound, BookOpen, RotateCcw, Library,
 } from "lucide-react";
 import { apiPost, resetAcademy } from "@/lib/api";
@@ -28,6 +28,7 @@ const NAV = [
   { to: "/bibliotheque", label: "Bibliothèque", icon: Library, id: "library" },
   { to: "/fiches", label: "Fiches & cartes", icon: ScrollText, id: "sheets" },
   { to: "/mes-cours", label: "Mes cours", icon: Camera, id: "cours" },
+  { to: "/dictionnaire", label: "Dictionnaire", icon: BookA, id: "dict" },
   { to: "/atelier", label: "Atelier création", icon: Palette, id: "workshop" },
   { to: "/calculatrice", label: "Calculatrice", icon: Calculator, id: "calculator" },
   { to: "/emploi-du-temps", label: "Emploi du temps", icon: CalendarDays, id: "timetable" },
