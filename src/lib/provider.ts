@@ -166,6 +166,76 @@ export async function testAi(): Promise<{ ok: boolean; message: string }> {
   };
 }
 
+/**
+ * Envoie une PHOTO (cahier, manuel, tableau) au modèle et récupère le texte.
+ * Gemini sait lire les images ; les autres fournisseurs configurés aussi (format OpenAI).
+ * Renvoie le texte lisible, ou null avec la raison dans `lastError`.
+ */
+export async function readPhoto(dataUrl: string, consigne: string): Promise<string | null> {
+  const cfg = getAiConfig();
+  const apiKey = cfg.apiKey.trim();
+  if (!apiKey) {
+    lastError = "Aucune clé IA enregistrée : la lecture des photos a besoin de Gemini.";
+    return null;
+  }
+  const comma = dataUrl.indexOf(",");
+  const head = dataUrl.slice(0, comma);
+  const base64 = dataUrl.slice(comma + 1);
+  const mime = /data:([^;]+)/.exec(head)?.[1] ?? "image/jpeg";
+  lastError = null;
+
+  if (cfg.provider === "gemini") {
+    const wanted = cleanModel(cfg.model) || "gemini-3-flash-preview";
+    const models = [wanted, "gemini-3-flash-preview", "gemini-flash-latest", "gemini-2.5-flash"].filter(
+      (m, i, a) => m && a.indexOf(m) === i,
+    );
+    for (const model of models) {
+      const data = (await post(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        { "x-goog-api-key": apiKey },
+        {
+          contents: [{ role: "user", parts: [{ text: consigne }, { inline_data: { mime_type: mime, data: base64 } }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 4000 },
+        },
+        45000,
+      )) as { candidates?: { content?: { parts?: { text?: string }[] } }[] } | null;
+      const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim();
+      if (text) return text;
+      if (lastError && /Clé invalide|expirée|Quota|Impossible de joindre/.test(lastError)) return null;
+    }
+    return null;
+  }
+
+  // Fournisseurs compatibles OpenAI (Groq, OpenRouter, Mistral, OpenAI)
+  const urls: Record<string, string> = {
+    groq: "https://api.groq.com/openai/v1/chat/completions",
+    openrouter: "https://openrouter.ai/api/v1/chat/completions",
+    mistral: "https://api.mistral.ai/v1/chat/completions",
+    openai: "https://api.openai.com/v1/chat/completions",
+  };
+  const model = cleanModel(cfg.model) || PROVIDERS.find((p) => p.id === cfg.provider)?.model || "gpt-4o-mini";
+  const data = (await post(
+    urls[cfg.provider] ?? urls.openai,
+    { Authorization: `Bearer ${apiKey}` },
+    {
+      model,
+      temperature: 0.2,
+      max_tokens: 4000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: consigne },
+            { type: "image_url", image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+    },
+    45000,
+  )) as { choices?: { message?: { content?: string } }[] } | null;
+  return data?.choices?.[0]?.message?.content?.trim() || null;
+}
+
 export async function askModel(
   system: string,
   message: string,

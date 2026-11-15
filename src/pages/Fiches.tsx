@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { BookMarked, Network } from "lucide-react";
+import { BookMarked, Camera, Network } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { useSubjects } from "@/lib/academy";
 import type { Sheet } from "@/lib/types";
@@ -65,6 +65,13 @@ export default function Fiches() {
       <p className="text-sm font-medium tracking-wide text-[#FDE68A] uppercase">La Bibliothèque</p>
       <h1 className="mt-1 font-heading text-4xl font-bold text-white">Fiches méthodes & cartes mentales</h1>
       <div className="mt-6 flex flex-wrap gap-2" data-testid="sheet-subject-filter">
+        <Link
+          to="/mes-cours"
+          data-testid="sheet-add-from-photo"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-[#8B5CF6] px-4 py-1.5 text-sm font-semibold text-white transition-[background-color] hover:bg-[#7C3AED]"
+        >
+          <Camera className="size-4" /> Depuis une photo de mon cours
+        </Link>
         <button
           type="button"
           onClick={() => set("matiere", null)}

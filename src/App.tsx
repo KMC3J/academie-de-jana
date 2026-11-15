@@ -11,6 +11,7 @@ import Quetes from "@/pages/Quetes";
 import Profil from "@/pages/Profil";
 import Professeur from "@/pages/Professeur";
 import Fiches from "@/pages/Fiches";
+import MesCours from "@/pages/MesCours";
 import Bibliotheque from "@/pages/Bibliotheque";
 import Atelier from "@/pages/Atelier";
 import Calculatrice from "@/pages/Calculatrice";
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="/profil" element={<Profil />} />
           <Route path="/professeur" element={<Professeur />} />
           <Route path="/fiches" element={<Fiches />} />
+          <Route path="/mes-cours" element={<MesCours />} />
           <Route path="/bibliotheque" element={<Bibliotheque />} />
           <Route path="/atelier" element={<Atelier />} />
           <Route path="/calculatrice" element={<Calculatrice />} />
