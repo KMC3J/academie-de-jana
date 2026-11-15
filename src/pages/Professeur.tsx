@@ -132,12 +132,29 @@ export default function Professeur() {
           <p className="flex items-center gap-2 text-xs text-[#C4B5FD]">
             <BrainCircuit className="size-4" /> Cerveau de Dame Morgane
           </p>
+          {/* Voyant d'état : vert = Gemini répond, rouge = clé à refaire, gris = mode fiches. */}
+          <p
+            className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+              !aiReady
+                ? "bg-white/10 text-[#C9C4E0]"
+                : aiOk === false
+                  ? "bg-[#7F1D1D] text-[#FECACA]"
+                  : "bg-[#064E3B] text-[#A7F3D0]"
+            }`}
+            data-testid="teacher-ai-light"
+          >
+            <span className={`size-2 rounded-full ${!aiReady ? "bg-[#8B84B0]" : aiOk === false ? "bg-[#F87171]" : "bg-[#34D399]"}`} />
+            {!aiReady ? "Mode fiches" : aiOk === false ? "Clé à refaire" : "Gemini actif"}
+          </p>
           <p className="mt-2 text-xs leading-relaxed" data-testid="teacher-ai-status">
             {aiReady ? (
               aiOk === false ? (
                 <span className="text-[#FCA5A5]" data-testid="teacher-ai-broken">
-                  Clé refusée par {providerDef.label} : Dame Morgane répond avec les fiches.
-                  {lastChatFallback ? ` (${lastChatFallback.slice(0, 140)})` : ""} Clique sur « Tester la clé ».
+                  <strong>La clé ne fonctionne plus.</strong> {providerDef.label} l'a refusée, Dame Morgane répond
+                  donc avec les fiches.
+                  {lastChatFallback ? ` (${lastChatFallback.slice(0, 140)})` : ""}
+                  <br />
+                  Pour la remplacer : « Changer de clé » → « Obtenir une clé gratuite » → « Tester la clé ».
                 </span>
               ) : (
                 <span className="text-[#6EE7B7]">IA connectée ({providerDef.label} · {ai.model}).</span>
@@ -254,7 +271,7 @@ export default function Professeur() {
               onClick={() => { setKeyDraft(ai.apiKey); setModelDraft(ai.model); setShowKey(true); }}
               data-testid="teacher-ai-configure"
             >
-              <KeyRound /> {aiReady ? "Changer de clé" : "Connecter une IA gratuite"}
+              <KeyRound /> {aiOk === false ? "Réparer la clé" : aiReady ? "Changer de clé" : "Connecter une IA gratuite"}
             </Button>
           )}
 
