@@ -44,7 +44,10 @@ export default function Professeur() {
     if (!aiReady) return;
     const id = window.setInterval(() => {
       if (lastChatFallback === null) return;
-      setAiOk(lastChatFallback.includes("Aucune clé") ? null : false);
+      const broken = !lastChatFallback.includes("Aucune clé");
+      setAiOk(broken ? false : null);
+      // Alerte visible : on ouvre le panneau pour que Jana (ou un parent) la voie.
+      if (broken) setShowKey(true);
     }, 1200);
     return () => window.clearInterval(id);
   }, [aiReady]);
@@ -199,9 +202,18 @@ export default function Professeur() {
                     setAi(next);
                     setAiConfig(next);
                     setAiTest("Test en cours… (25 s maximum)");
+                    const before = ai;
                     try {
                       const res = await testAi();
                       setAiTest(res.message);
+                      setAiOk(res.ok ? true : false);
+                      if (!res.ok) {
+                        // Clé refusée : on remet la configuration précédente plutôt que
+                        // de laisser une clé cassée remplacer celle qui marchait.
+                        setAi(before);
+                        setAiConfig(before);
+                        setKeyDraft(before.apiKey);
+                      }
                       toast[res.ok ? "success" : "error"](res.ok ? "IA connectée !" : "La clé n'a pas fonctionné");
                     } catch (e) {
                       setAiTest(`Le test a échoué : ${String(e).slice(0, 120)}`);
