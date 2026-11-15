@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, Loader2, Network, Trash2, Upload } from "lucide-react";
+import { Camera, FileText, Loader2, Network, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiPost, apiPut } from "@/lib/api";
 import { useSubjects } from "@/lib/academy";
@@ -13,6 +13,8 @@ import {
   shrinkPhoto,
   transcribePhoto,
   mindMapFromText,
+  pdfToText,
+  cleanPdfText,
   type LessonPhoto,
 } from "@/lib/cours";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,7 @@ export default function MesCours() {
   const [subjectId, setSubjectId] = useState<string>("");
   const [showCamera, setShowCamera] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
   const aiReady = getAiConfig().apiKey.trim().length > 0;
 
   const persist = (next: LessonPhoto[]) => {
@@ -67,6 +70,40 @@ export default function MesCours() {
     const fallbackSubject = subjectId || subjects?.[0]?.id || "";
     for (const file of Array.from(files)) {
       const id = newId();
+      // ---- PDF : on lit d'abord le texte du document
+      if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+        setBusy(id);
+        const pdfDoc: LessonPhoto = {
+          id,
+          subject_id: fallbackSubject,
+          title: file.name.replace(/\.pdf$/i, "") || "Cours en PDF",
+          image: "",
+          created_at: new Date().toISOString(),
+          text: "",
+          sheet_id: null,
+          status: "à lire",
+          doc: "pdf",
+        };
+        persist([pdfDoc, ...photos]);
+        try {
+          const { text, pages } = await pdfToText(file);
+          if (!text.trim()) {
+            // PDF scanné (photo de pages) : plus aucun texte à extraire.
+            throw new Error(
+              "Ce PDF ne contient que des images (document scanné) : fais-en une photo avec l'appareil photo.",
+            );
+          }
+          const clean = await cleanPdfText(text);
+          patch(id, { text: clean, status: "lu", pages, subject_id: guessSubject(clean, fallbackSubject) });
+          toast.success(`PDF lu (${pages} page${pages > 1 ? "s" : ""}) : tu peux créer la carte mentale.`);
+        } catch (e) {
+          patch(id, { status: "erreur", error: String(e instanceof Error ? e.message : e).slice(0, 180) });
+          toast.error("PDF illisible : " + String(e instanceof Error ? e.message : e).slice(0, 120));
+        } finally {
+          setBusy(null);
+        }
+        continue;
+      }
       setBusy(id);
       let image = "";
       try {
@@ -139,10 +176,10 @@ export default function MesCours() {
   return (
     <div>
       <p className="text-sm font-medium tracking-wide text-[#FDE68A] uppercase">La Bibliothèque</p>
-      <h1 className="mt-1 font-heading text-4xl font-bold text-white">Mes cours photographiés</h1>
+      <h1 className="mt-1 font-heading text-4xl font-bold text-white">Mes cours</h1>
       <p className="mt-2 max-w-2xl text-sm text-[#A7A1C8]">
-        Prends ton cahier en photo : Dame Morgane lit le cours, puis t'en fait une carte mentale rangée dans
-        « Fiches et cartes mentales ».
+        Photographie ton cahier ou ajoute un PDF : Dame Morgane lit le cours, puis t'en fait une carte mentale
+        rangée dans « Fiches et cartes mentales ».
       </p>
 
       {!aiReady && (
@@ -180,25 +217,36 @@ export default function MesCours() {
         <Button onClick={() => fileRef.current?.click()} data-testid="cours-pick">
           <Camera /> Photographier mon cahier
         </Button>
-        <Button variant="outline" onClick={() => setShowCamera((v) => !v)} data-testid="cours-help">
-          <Upload /> Depuis l'ordinateur
+        <input
+          ref={pdfRef}
+          type="file"
+          accept="application/pdf"
+          multiple
+          className="hidden"
+          data-testid="cours-pdf-file"
+          onChange={(e) => handleFiles(e.target.files)}
+        />
+        <Button variant="outline" onClick={() => pdfRef.current?.click()} data-testid="cours-pdf">
+          <FileText /> Ajouter un PDF
         </Button>
-        {showCamera && (
-          <Button variant="ghost" onClick={() => fileRef.current?.click()}>
-            Choisir un fichier image…
-          </Button>
-        )}
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         {photos.map((p) => (
           <article key={p.id} className="rounded-3xl border border-white/5 bg-[#18142A] p-4" data-testid={`cours-item-${p.id}`}>
             <div className="flex gap-4">
-              <img src={p.image} alt={p.title} className="h-28 w-24 shrink-0 rounded-xl object-cover ring-1 ring-white/10" />
+              {p.image ? (
+                <img src={p.image} alt={p.title} className="h-28 w-24 shrink-0 rounded-xl object-cover ring-1 ring-white/10" />
+              ) : (
+                <div className="flex h-28 w-24 shrink-0 items-center justify-center rounded-xl bg-[#0D0B18] ring-1 ring-white/10">
+                  <FileText className="size-8 text-[#C4B5FD]" />
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-[#9D95C2]">
                   {subjects?.find((s) => s.id === p.subject_id)?.name ?? "Matière ?"} ·{" "}
                   {new Date(p.created_at).toLocaleDateString("fr-FR")}
+                  {p.doc === "pdf" ? ` · PDF${p.pages ? ` (${p.pages} p.)` : ""}` : ""}
                 </p>
                 <h2 className="truncate font-heading text-lg font-bold text-white">{p.title}</h2>
                 <p className="mt-1 text-xs text-[#A7A1C8]">
@@ -231,7 +279,7 @@ export default function MesCours() {
               >
                 {busy === p.id ? <Loader2 className="animate-spin" /> : <Network />} Créer la carte mentale
               </Button>
-              {p.status === "erreur" && (
+              {p.status === "erreur" && p.doc !== "pdf" && (
                 <Button size="sm" variant="outline" onClick={() => retry(p)} disabled={busy === p.id}>
                   Relire la photo
                 </Button>

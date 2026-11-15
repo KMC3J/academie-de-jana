@@ -8,6 +8,9 @@
  */
 import { readPhoto, lastError as lastAiError } from "@/lib/provider";
 
+/** Un document ajouté : une photo du cahier, ou un PDF. */
+export type DocKind = "photo" | "pdf";
+
 export type LessonPhoto = {
   id: string;
   subject_id: string;
@@ -21,6 +24,10 @@ export type LessonPhoto = {
   sheet_id: string | null;
   status: "à lire" | "lu" | "erreur";
   error?: string;
+  /** photo du cahier (par défaut) ou fichier PDF */
+  doc?: DocKind;
+  /** PDF : nombre de pages du document */
+  pages?: number;
 };
 
 const KEY = "academie.cours.v1";
@@ -77,11 +84,63 @@ const CONSIGNE = `Tu transcris la photo d'un cahier d'élève de 5e.
 2. Ne commente pas, ne résume pas : tu écris le cours tel qu'il est, en français, en lignes courtes.
 3. Termine par une ligne « MATIÈRE : <français | mathématiques | histoire | géographie | anglais | espagnol | allemand | svt | physique-chimie | technologie | musique | arabe | culture> ».`;
 
+/** Extrait le texte d'un PDF, page par page. Renvoie le texte et le nombre de pages. */
+export async function pdfToText(file: File): Promise<{ text: string; pages: number }> {
+  const pdfjs = await import("pdfjs-dist");
+  // Le lecteur PDF travaille dans un fil séparé : on lui donne son fichier.
+  // (?url = l'adresse du fichier worker ; absente en test hors navigateur.)
+  try {
+    const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+    if (typeof worker.default === "string") pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  } catch {
+    /* hors navigateur : on laisse pdf.js se débrouiller */
+  }
+  const data = new Uint8Array(await file.arrayBuffer());
+  // pdf.js a besoin de ses polices de base pour lire correctement les accents
+  // des PDF créés hors traitement de texte.
+  let standardFontDataUrl: string | undefined;
+  try {
+    standardFontDataUrl = new URL("pdfjs-dist/standard_fonts/", import.meta.url).href;
+  } catch {
+    standardFontDataUrl = undefined;
+  }
+  const doc = await pdfjs.getDocument({ data, standardFontDataUrl }).promise;
+  const parts: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    const line = content.items
+      .map((it) => ("str" in it ? it.str : ""))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (line) parts.push(`— page ${i} —\n${line}`);
+  }
+  return { text: parts.join("\n\n"), pages: doc.numPages };
+}
+
 /** Lit la photo et renvoie le texte du cours. */
 export async function transcribePhoto(dataUrl: string): Promise<string> {
   const text = await readPhoto(dataUrl, CONSIGNE);
   if (!text) throw new Error(lastAiError ?? "L'IA n'a pas répondu.");
   return text;
+}
+
+const CONSIGNE_PDF = `Tu reçois le texte brut d'un document de cours (PDF) d'un élève de 5e.
+1. Rends ce cours lisible : garde les titres, définitions, listes, formules, dates et vocabulaire, dans l'ordre du document. Corrige les fautes évidentes et recolle les mots coupés en fin de ligne.
+2. Supprime ce qui n'est pas du cours (en-têtes, pieds de page, numéros isolés, publicités, noms de fichiers).
+3. Ne résume pas, n'invente rien : si un passage est illisible, écris [illisible].
+4. Termine par une ligne « MATIÈRE : <français | mathématiques | histoire | géographie | anglais | espagnol | allemand | svt | physique-chimie | technologie | musique | arabe | culture> ».`;
+
+/** Range un long texte de PDF en cours propre (par lots de pages). */
+export async function cleanPdfText(raw: string): Promise<string> {
+  const chunks = raw.match(/[\s\S]{1,5000}/g) ?? [];
+  const out: string[] = [];
+  for (const chunk of chunks.slice(0, 8)) {
+    const text = await readPhotoText(`${CONSIGNE_PDF}\n\nDOCUMENT :\n${chunk}`);
+    out.push(text);
+  }
+  return out.join("\n\n").trim();
 }
 
 export type MindMap = { title: string; branches: { label: string; items: string[] }[] };
@@ -91,6 +150,8 @@ export type MindMap = { title: string; branches: { label: string; items: string[
  * 2 à 5 mots-clés par branche. Réponse demandée en JSON strict.
  */
 export async function mindMapFromText(text: string, matiere: string): Promise<MindMap> {
+  // Un cours très long (PDF) : on garde les parties les plus riches en vocabulaire.
+  text = text.length > 6000 ? text.slice(0, 3000) + "\n[…]\n" + text.slice(-3000) : text;
   const consigne = `Transforme ce cours de ${matiere} en carte mentale pour une élève de 5e.
 Réponds UNIQUEMENT par un JSON valide, sans texte autour, de cette forme :
 {"title":"titre court du cours","branches":[{"label":"nom de la branche","items":["mot-clé 1","mot-clé 2"]}]}
