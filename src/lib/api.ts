@@ -562,11 +562,15 @@ function pendingQuestion(history: ChatMessage[]): PendingQuestion | null {
   for (const bank of Object.values(QUESTION_BANK)) {
     for (const item of bank) {
       if (close(item.q)) {
+        // La bonne réponse ne compte que si elle a réellement été écrite dans la
+        // réponse. Le modèle peut la taire : dans ce cas on ne la révèle pas.
+        const said = normalizeText(last.content);
+        const revealed = said.includes(normalizeText(item.answer));
         return {
           q: item.q,
           options: shown.length >= 2 ? shown : item.options,
-          answer: item.answer,
-          why: item.why,
+          answer: revealed ? item.answer : "",
+          why: revealed ? item.why : "",
         };
       }
     }
@@ -612,11 +616,31 @@ function matchOption(options: string[], message: string): string | null {
     const i = Number(byNumber[1]) - 1;
     if (i >= 0 && i < options.length) return options[i];
   }
-  // Correspondance par mots : la réponse est valable si elle cite l'option.
+  // Correspondance par mots : la réponse est valable si elle cite l'option,
+  // ou si elle est très proche (« couds » pour « il coud »).
+  const words = (t: string) => normalizeText(t).split(/[^a-z0-9]+/).filter((w) => w.length > 2);
   for (const opt of options) {
-    const words = normalizeText(opt).split(/[^a-z0-9]+/).filter((w) => w.length > 3);
-    if (words.length > 0 && words.every((w) => m.includes(w))) return opt;
+    const ow = words(opt);
+    if (ow.length > 0 && ow.every((w) => m.includes(w))) return opt;
   }
+  const distance = (a: string, b: string) => {
+    const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+    for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+    for (let i = 1; i <= a.length; i++)
+      for (let j = 1; j <= b.length; j++)
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return dp[a.length][b.length];
+  };
+  const flat = m.replace(/[^a-z0-9]/g, "");
+  let best: { opt: string; score: number } | null = null;
+  for (const opt of options) {
+    const o = normalizeText(opt).replace(/[^a-z0-9]/g, "");
+    if (!o) continue;
+    const score = distance(flat, o);
+    if (!best || score < best.score) best = { opt, score };
+  }
+  // tolérance : 1 faute pour 4 lettres, au minimum 2 fautes
+  if (best && best.score <= Math.max(2, Math.round(best.opt.length / 4))) return best.opt;
   return null;
 }
 
@@ -1031,9 +1055,9 @@ async function routeWrite(method: string, path: string, body: unknown): Promise<
       TEACHER_SYSTEM,
       subjectName ? `Matière en cours : ${subjectName}.` : "",
       topicHint(message, previous),
-      "Quand tu poses une question de vérification, propose 3 réponses possibles (A, B, C) et précise laquelle est la bonne : Jana répondra par une lettre.",
+      "Question de vérification : propose 3 réponses (A, B, C) SANS jamais dire laquelle est bonne — c'est Jana qui doit chercher.",
       awaiting
-        ? `Tu viens de poser cette question : « ${awaiting.q} ». Réponses proposées : ${awaiting.options.join(" / ")}. La bonne réponse est : ${awaiting.answer}. Commence ta réponse par la correction de ce que Jana vient d'écrire.`
+        ? `Tu viens de poser cette question : « ${awaiting.q} ». Réponses proposées : ${awaiting.options.join(" / ")}.${awaiting.answer ? ` La bonne réponse est : ${awaiting.answer}.` : ""} Commence ta réponse par la correction de ce que Jana vient d'écrire, puis propose une nouvelle question de vérification.`
         : "",
     ].filter(Boolean).join("\n");
     const modelReply = await askModel(system, message, p, previous);
